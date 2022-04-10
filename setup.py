@@ -176,126 +176,137 @@ if "--cuda_ext" in sys.argv:
     raise_if_cuda_home_none("--cuda_ext")
     check_cuda_torch_binary_vs_bare_metal(CUDA_HOME)
 
-    ext_modules.append(
-        CUDAExtension(
-            name="amp_C",
-            sources=[
-                "csrc/amp_C_frontend.cpp",
-                "csrc/multi_tensor_sgd_kernel.cu",
-                "csrc/multi_tensor_scale_kernel.cu",
-                "csrc/multi_tensor_axpby_kernel.cu",
-                "csrc/multi_tensor_l2norm_kernel.cu",
-                "csrc/multi_tensor_l2norm_kernel_mp.cu",
-                "csrc/multi_tensor_l2norm_scale_kernel.cu",
-                "csrc/multi_tensor_lamb_stage_1.cu",
-                "csrc/multi_tensor_lamb_stage_2.cu",
-                "csrc/multi_tensor_adam.cu",
-                "csrc/multi_tensor_adagrad.cu",
-                "csrc/multi_tensor_novograd.cu",
-                "csrc/multi_tensor_lamb.cu",
-                "csrc/multi_tensor_lamb_mp.cu",
-            ],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(
-                    [
-                        "-lineinfo",
-                        "-O3",
-                        # '--resource-usage',
-                        "--use_fast_math",
-                    ]
-                    + version_dependent_macros
-                ),
-            },
-        )
-    )
-    ext_modules.append(
-        CUDAExtension(
-            name="syncbn",
-            sources=["csrc/syncbn.cpp", "csrc/welford.cu"],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
-            },
-        )
-    )
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="amp_C",
+#            sources=[
+#                "csrc/amp_C_frontend.cpp",
+#                "csrc/multi_tensor_sgd_kernel.cu",
+#                "csrc/multi_tensor_scale_kernel.cu",
+#                "csrc/multi_tensor_axpby_kernel.cu",
+#                "csrc/multi_tensor_l2norm_kernel.cu",
+#                "csrc/multi_tensor_l2norm_kernel_mp.cu",
+#                "csrc/multi_tensor_l2norm_scale_kernel.cu",
+#                "csrc/multi_tensor_lamb_stage_1.cu",
+#                "csrc/multi_tensor_lamb_stage_2.cu",
+#                "csrc/multi_tensor_adam.cu",
+#                "csrc/multi_tensor_adagrad.cu",
+#                "csrc/multi_tensor_novograd.cu",
+#                "csrc/multi_tensor_lamb.cu",
+#                "csrc/multi_tensor_lamb_mp.cu",
+#            ],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(
+#                    [
+#                        "-lineinfo",
+#                        "-O3",
+#                        # '--resource-usage',
+#                        "--use_fast_math",
+#                    ]
+#                    + version_dependent_macros
+#                ),
+#            },
+#        )
+#    )
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="syncbn",
+#            sources=["csrc/syncbn.cpp", "csrc/welford.cu"],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
+#            },
+#        )
+#    )
+#
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="fused_layer_norm_cuda",
+#            sources=["csrc/layer_norm_cuda.cpp", "csrc/layer_norm_cuda_kernel.cu"],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(["-maxrregcount=50", "-O3", "--use_fast_math"] + version_dependent_macros),
+#            },
+#        )
+#    )
+#
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="mlp_cuda",
+#            sources=["csrc/mlp.cpp", "csrc/mlp_cuda.cu"],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
+#            },
+#        )
+#    )
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="fused_dense_cuda",
+#            sources=["csrc/fused_dense.cpp", "csrc/fused_dense_cuda.cu"],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
+#            },
+#        )
+#    )
+#
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="scaled_upper_triang_masked_softmax_cuda",
+#            sources=[
+#                "csrc/megatron/scaled_upper_triang_masked_softmax.cpp",
+#                "csrc/megatron/scaled_upper_triang_masked_softmax_cuda.cu",
+#            ],
+#            include_dirs=[os.path.join(this_dir, "csrc")],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(
+#                    [
+#                        "-O3",
+#                        "-U__CUDA_NO_HALF_OPERATORS__",
+#                        "-U__CUDA_NO_HALF_CONVERSIONS__",
+#                        "--expt-relaxed-constexpr",
+#                        "--expt-extended-lambda",
+#                    ]
+#                    + version_dependent_macros
+#                ),
+#            },
+#        )
+#    )
 
-    ext_modules.append(
-        CUDAExtension(
-            name="fused_layer_norm_cuda",
-            sources=["csrc/layer_norm_cuda.cpp", "csrc/layer_norm_cuda_kernel.cu"],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(["-maxrregcount=50", "-O3", "--use_fast_math"] + version_dependent_macros),
-            },
-        )
-    )
-
-    ext_modules.append(
-        CUDAExtension(
-            name="mlp_cuda",
-            sources=["csrc/mlp.cpp", "csrc/mlp_cuda.cu"],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
-            },
-        )
-    )
-    ext_modules.append(
-        CUDAExtension(
-            name="fused_dense_cuda",
-            sources=["csrc/fused_dense.cpp", "csrc/fused_dense_cuda.cu"],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(["-O3"] + version_dependent_macros),
-            },
-        )
-    )
-
-    ext_modules.append(
-        CUDAExtension(
-            name="scaled_upper_triang_masked_softmax_cuda",
-            sources=[
-                "csrc/megatron/scaled_upper_triang_masked_softmax.cpp",
-                "csrc/megatron/scaled_upper_triang_masked_softmax_cuda.cu",
-            ],
-            include_dirs=[os.path.join(this_dir, "csrc")],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(
-                    [
-                        "-O3",
-                        "-U__CUDA_NO_HALF_OPERATORS__",
-                        "-U__CUDA_NO_HALF_CONVERSIONS__",
-                        "--expt-relaxed-constexpr",
-                        "--expt-extended-lambda",
-                    ]
-                    + version_dependent_macros
-                ),
-            },
-        )
-    )
-
-    ext_modules.append(
-        CUDAExtension(
-            name="scaled_masked_softmax_cuda",
-            sources=["csrc/megatron/scaled_masked_softmax.cpp", "csrc/megatron/scaled_masked_softmax_cuda.cu"],
-            include_dirs=[os.path.join(this_dir, "csrc")],
-            extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros,
-                "nvcc": append_nvcc_threads(
-                    [
-                        "-O3",
-                        "-U__CUDA_NO_HALF_OPERATORS__",
-                        "-U__CUDA_NO_HALF_CONVERSIONS__",
-                        "--expt-relaxed-constexpr",
-                        "--expt-extended-lambda",
-                    ]
-                    + version_dependent_macros
-                ),
-            },
-        )
-    )
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="fused_layer_norm_cuda",
+#            sources=["csrc/layer_norm_cuda.cpp", "csrc/layer_norm_cuda_kernel.cu"],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(["-maxrregcount=50", "-O3", "--use_fast_math"] + version_dependent_macros),
+#            },
+#        )
+#    )
+#
+#    ext_modules.append(
+#        CUDAExtension(
+#            name="scaled_masked_softmax_cuda",
+#            sources=["csrc/megatron/scaled_masked_softmax.cpp", "csrc/megatron/scaled_masked_softmax_cuda.cu"],
+#            include_dirs=[os.path.join(this_dir, "csrc")],
+#            extra_compile_args={
+#                "cxx": ["-O3"] + version_dependent_macros,
+#                "nvcc": append_nvcc_threads(
+#                    [
+#                        "-O3",
+#                        "-U__CUDA_NO_HALF_OPERATORS__",
+#                        "-U__CUDA_NO_HALF_CONVERSIONS__",
+#                        "--expt-relaxed-constexpr",
+#                        "--expt-extended-lambda",
+#                    ]
+#                    + version_dependent_macros
+#                ),
+#            },
+#        )
+#    )
 
     # Check, if CUDA11 is installed for compute capability 8.0
     _, bare_metal_major, bare_metal_minor = get_cuda_bare_metal_version(CUDA_HOME)
@@ -515,21 +526,25 @@ if "--fmha" in sys.argv:
             name="fmhalib",
             sources=[
                 "apex/contrib/csrc/fmha/fmha_api.cpp",
-                "apex/contrib/csrc/fmha/src/fmha_noloop_reduce.cu",
-                "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_128_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_noloop_reduce.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_128_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_256_128_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_384_64_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_256_64_kernel.sm80.cu",
-                "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_384_64_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_512_64_kernel.sm80.cu",
-                "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_128_64_kernel.sm80.cu",
-                "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_256_64_kernel.sm80.cu",
-                "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_384_64_kernel.sm80.cu",
-                "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_512_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_1024_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_128_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_256_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_384_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_512_64_kernel.sm80.cu",
+                #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_1024_64_kernel.sm80.cu",
             ],
             extra_compile_args={
-                "cxx": ["-O3"] + version_dependent_macros + generator_flag,
+                "cxx": ["-O3", "-g"] + version_dependent_macros + generator_flag,
                 "nvcc": append_nvcc_threads(
                     [
                         "-O3",
+                        "-g",
                         "-U__CUDA_NO_HALF_OPERATORS__",
                         "-U__CUDA_NO_HALF_CONVERSIONS__",
                         "--expt-relaxed-constexpr",

@@ -144,17 +144,19 @@ struct Softmax_base {
     using Mma_tile = fmha::Hmma_tile<Cta_tile>;
 
     // The number of MMAs in M/N dimensions.
-    enum { MMAS_M = Mma_tile::MMAS_M };
-    enum { MMAS_N = Mma_tile::MMAS_N };
+    enum { MMAS_M = Mma_tile::MMAS_M }; // 1
+    enum { MMAS_N = Mma_tile::MMAS_N }; // 4
 
     // The number of groups of warp such that we have at most 4 warps writing consecutive elements.
-    enum { GROUPS = fmha::Div_up<Cta_tile::WARPS_N, 4>::VALUE };
+    enum { GROUPS = fmha::Div_up<Cta_tile::WARPS_N, 4>::VALUE }; // 1
     // The number of elements that we are going to store per row.
-    enum { ELEMENTS_PER_ROW = Cta_tile::WARPS_N / GROUPS };
+    enum { ELEMENTS_PER_ROW = Cta_tile::WARPS_N / GROUPS }; // 4
     // The number of rows.
-    enum { ROWS = Cta_tile::M * GROUPS };
+    enum { ROWS = Cta_tile::M * GROUPS }; // 4
     // The total number of elements.
-    enum { ELEMENTS = ROWS * ELEMENTS_PER_ROW };
+    enum { ELEMENTS = ROWS * ELEMENTS_PER_ROW }; // 16
+
+    enum { ROW_STRIDE = 8 };
 
     // Ctor.
     template<typename Params>
@@ -186,6 +188,8 @@ struct Softmax_base {
 
         // Assemble the read pointer.
         smem_read_ = &smem_[warp_m * Mma_tile::M_PER_MMA + lane / 4];
+
+        lane_ = lane;
     }
 
     template<typename Mask>
@@ -237,12 +241,33 @@ struct Softmax_base {
         }
     }
 
+    inline __device__ void update_cur_sum(float (&sum)[MMAS_M * 2], float (&max)[MMAS_M * 2], float *smem_old_sums_p, float *smem_old_maxs_p) {
+        sum[0] += smem_old_sums_p[lane_] * __expf(smem_old_maxs_p[lane_] - max[0]);
+        sum[1] += smem_old_sums_p[lane_ + ROW_STRIDE] * __expf(smem_old_maxs_p[lane_ + ROW_STRIDE] - max[1]);
+    }
+
+    inline __device__ void update_cur_max(float (&max)[MMAS_M * 2], float *smem_old_maxs_p) {
+        max[0] = fmaxf(max[0], smem_old_maxs_p[lane_]);
+        max[1] = fmaxf(max[1], smem_old_maxs_p[lane_ + ROW_STRIDE]);
+    }
+
+    inline __device__ void update_old_sum(const float (&sum)[MMAS_M * 2], float *old_sum_out) {
+        old_sum_out[lane_]              = sum[0];
+        old_sum_out[lane_ + ROW_STRIDE] = sum[1];
+    }
+
+    inline __device__ void update_old_max(const float (&max)[MMAS_M * 2], float *old_max_out) {
+        old_max_out[lane_]              = max[0];
+        old_max_out[lane_ + ROW_STRIDE] = max[1];
+    }
+
     // The pointer to the mask.
     const char *packed_mask_ptr_;
     // Shared memory for the CTA-wide reduction.
     float *smem_, *smem_write_, *smem_read_;
     // The current thread index.
     int tidx_;
+    int lane_;
     // The elements.
     float elt_[MMAS_M * 2][MMAS_N * 4];
 };

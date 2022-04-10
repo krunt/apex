@@ -79,6 +79,15 @@ std::vector<torch::Tensor> fwd_cuda(bool use_time_mask, bool is_training,
 
   TORCH_CUDABLAS_CHECK(cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH));
   // Input Linear Fwd
+
+  /*
+  std::cout << inputs.is_contiguous() << std::endl;
+  std::cout << static_cast<const void *>(inputs.data_ptr()) << std::endl;
+  std::cout << inputs.is_contiguous() << std::endl;
+  std::cout << inputs.itemsize() << std::endl;
+  std::cout << inputs.numel() << std::endl;
+  */
+
   TORCH_CUDABLAS_CHECK(cublasGemmEx(
       handle, CUBLAS_OP_T, CUBLAS_OP_N, output_lin_dim, batches, embed_dim,
       static_cast<const void *>(&alpha),

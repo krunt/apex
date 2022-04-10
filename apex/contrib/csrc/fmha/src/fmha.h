@@ -83,6 +83,8 @@ struct Fused_multihead_attention_fprop_params : public Qkv_params {
     // The dimensions.
     int b, s, d;
 
+    int max_s;
+
     // The scaling factors for the kernel.
     uint32_t scale_bmm1, scale_softmax, scale_bmm2;
 
@@ -141,6 +143,8 @@ void run_fmha_fp16_128_64_sm80(Launch_params<Fused_multihead_attention_fprop_par
 void run_fmha_fp16_256_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure);
 void run_fmha_fp16_384_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure);
 void run_fmha_fp16_512_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure);
+
+void run_fmha_fp16_256_128_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure);
 
 void run_fmha_dgrad_fp16_128_64_sm80(const Fused_multihead_attention_fprop_params &params, cudaStream_t stream);
 void run_fmha_dgrad_fp16_256_64_sm80(const Fused_multihead_attention_fprop_params &params, cudaStream_t stream);

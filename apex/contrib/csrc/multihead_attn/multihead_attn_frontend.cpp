@@ -1,4 +1,5 @@
 #include <vector>
+#include <iostream>
 
 #include <cuda_fp16.h>
 #include <torch/extension.h>

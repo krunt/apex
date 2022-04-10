@@ -181,12 +181,14 @@ struct Gemm_Q_K<Kernel_traits, false> : public Gemm_Q_K_base<Kernel_traits> {
 };
 
 template<typename Kernel_traits>
-constexpr size_t get_dynamic_smem_size(){
-    return Gemm_Q_K<Kernel_traits, Kernel_traits::K_IN_REGS>::SMEM_BYTES;
+size_t get_dynamic_smem_size(const Fused_multihead_attention_fprop_params &params){
+    size_t ret = 2 * params.max_s * sizeof(float);
+    ret += 2 * 16 * sizeof(float); // for current max/sum
+    return ret + Gemm_Q_K<Kernel_traits, Kernel_traits::K_IN_REGS>::SMEM_BYTES;
 }
 
 template<typename Kernel_traits, bool Is_training, typename Params, typename Prng>
-inline __device__ void device_1xN_(const Params &params, const int bidb, const int bidh, const int begin, const int steps, Prng & ph) {
+inline __device__ void device_1xN_(const Params &params, const int bidb, const int bidh, const int bids, const int begin, const int steps, Prng & ph) {
 
 
     // The description of the CTA tile for the 1st batched GEMM.
@@ -230,6 +232,11 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Shared memory.
     extern __shared__ char smem_[];
 
+    float *smem_old_maxs = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX];
+    float *smem_old_sums = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX + params.max_s * sizeof(float)];
+    float *smem_cur_maxs = &smem_old_sums[params.max_s];
+    float *smem_cur_sums = &smem_cur_maxs[Cta_tile_p::M];
+
     // The thread index.
     const int tidx = threadIdx.x;
 
@@ -238,24 +245,24 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
 
     Gemm1 gemm_q_k(smem_, tidx);
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_q gmem_q(params, 0, binfo, tidx);
+    Gmem_tile_q gmem_q(params, 0, 0, binfo, tidx);
     // Allocate the global memory tile loader for O.
-    Gmem_tile_o gmem_o(params, binfo, tidx);
+    Gmem_tile_o gmem_o(params, 0, binfo, tidx);
     // Allocate the global memory tile loader for S.
-    Gmem_tile_s gmem_s(params, binfo, tidx);
+    // Gmem_tile_s gmem_s(params, binfo, tidx);
     // Wind gmem tiles to the correct position.
     for( int it = 0; it < begin; it++ ) {
         gmem_q.move();
-        gmem_s.move();
+        // gmem_s.move();
         gmem_o.move();
     }
 
     fmha::Mask<Cta_tile_p> mask(params, binfo, tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 1, binfo, tidx);
+    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, binfo, tidx);
     // Allocate the global memory tile loader for V.
-    Gmem_tile_v gmem_v(params, 2, binfo, tidx);
+    Gmem_tile_v gmem_v(params, 2, bids * Cta_tile_p::N, binfo, tidx);
     // The base pointer of smem_v;
     char *smem_v_ = &smem_[Gemm1::SMEM_OFFSET_V];
     
@@ -319,9 +326,20 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Create the object to do the softmax.
     Softmax softmax(params, &smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE], bidb, tidx);
 
+    
+    
+
     // Load over the entire sequence length.
     for( int l = 0; l < steps; l++ ) {
         if(begin + l * Cta_tile_p::M >= binfo.actual_seqlen) break;
+        if (bids == 0) {
+            smem_old_maxs[threadIdx.x % Cta_tile_p::M] = -10000;
+            smem_old_sums[threadIdx.x % Cta_tile_p::M] = 0;
+            __syncthreads();
+        }
+
+        float *smem_old_maxs_p = &smem_old_maxs[l * Cta_tile_p::M];
+        float *smem_old_sums_p = &smem_old_sums[l * Cta_tile_p::M];
 
         // Declare the accumulators for the 1st gemm.
         fmha::Fragment_accumulator acc_p[Mma_tile_p::MMAS_M][Mma_tile_p::MMAS_N];
@@ -355,6 +373,8 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         //softmax.template reduce<fmha::Max_>(p_max);
         softmax.reduce_max(p_max);
 
+        softmax.update_cur_max(p_max, smem_old_maxs_p);
+
         // Compute the exponential value.
         softmax.apply_exp(p_max);
 
@@ -362,8 +382,15 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         float p_sum[Mma_tile_p::MMAS_M * 2];
         softmax.reduce_sum(p_sum);
 
+        softmax.update_cur_sum(p_sum, p_max, smem_old_sums_p, smem_old_maxs_p);
+
         // Finalize softmax on the accumulators of P^T.
         softmax.scale(p_sum);
+
+        // smem_cur_sums, smem_cur_maxs
+        softmax.update_old_sum(p_sum, smem_cur_sums);
+        softmax.update_old_max(p_max, smem_cur_maxs);
+
 
         using Frag_p = fmha::Fragment_a<fmha::Row>;
         Frag_p frag_p[Mma_tile_o::MMAS_K][Mma_tile_o::MMAS_M];
@@ -389,8 +416,8 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
                 }
             }
             softmax.pack(frag_p);
-            gmem_s.store(frag_p, mask);
-            gmem_s.move();
+            // gmem_s.store(frag_p, mask);
+            // gmem_s.move();
         } else {
             softmax.pack(frag_p);
         }
@@ -424,27 +451,17 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         }
 
         // Loop over MMAS_M.
-        #pragma unroll
-        for( int ii = 0; ii < Gmem_tile_o::LOOPS; ++ii ) {
+        static_assert(Gmem_tile_o::LOOPS == 1);
 
-            // Swizzle the elements and do the final reduction.
-            smem_o.store(acc_o, ii);
+        smem_o.store(acc_o, 0);
 
-            // Make sure the data is in shared memory.
-            __syncthreads();
+        __syncthreads();
 
-            // Load from shared memory.
-            uint4 out[Gmem_tile_o::STGS_PER_LOOP];
-            smem_o.load(out);
+        uint4 out[Gmem_tile_o::STGS_PER_LOOP];
+        smem_o.load(out);
 
-            // Make sure the data was read from shared memory.
-            if( ii < Gmem_tile_o::LOOPS - 1 ) {
-                __syncthreads();
-            }
-
-            // Output the values.
-            gmem_o.store(out, ii);
-        }
+        // gmem_o.store(out, 0);
+        gmem_o.store_add(out, 0, smem_cur_sums, smem_cur_maxs, smem_old_sums_p, smem_old_maxs_p);
 
         // Move to the next part of the output.
         gmem_o.move();
@@ -454,6 +471,9 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         if(l < steps - 1) {
             gemm_q_k.reload_q();
         }
+
+        softmax.update_old_max(p_max, smem_old_maxs_p);
+        softmax.update_old_sum(p_sum, smem_old_sums_p);
 
     }  // Outer loop over the sequence length.
 }
@@ -515,13 +535,17 @@ inline __device__ void device_1xN(const Params &params, const int total_heads) {
     const int tidx_global = blockIdx.x * gridDim.x + threadIdx.x;
     auto seeds = at::cuda::philox::unpack(params.philox_args);
     Philox ph(std::get<0>(seeds), tidx_global, std::get<1>(seeds));
-    constexpr int STEPS = Kernel_traits::Cta_tile_p::N / Kernel_traits::Cta_tile_p::M;
+    // constexpr int STEPS = Kernel_traits::Cta_tile_p::N / Kernel_traits::Cta_tile_p::M;
+    int STEPS_M = params.max_s / Kernel_traits::Cta_tile_p::M;
+    int STEPS_N = params.max_s / Kernel_traits::Cta_tile_p::N;
 
     for(int bidx = blockIdx.x; bidx < total_heads; bidx += gridDim.x){
         const int bidh = bidx % params.h;
         const int bidb = bidx / params.h;
-        fmha::device_1xN_<Kernel_traits, Is_training>(params, bidb, bidh, 0, STEPS, ph);
-        __syncthreads();
+        for (int bids = 0; bids < STEPS_N; ++bids) {
+            fmha::device_1xN_<Kernel_traits, Is_training>(params, bidb, bidh, bids, 0, STEPS_M, ph);
+            __syncthreads();
+        }
     }
 }
 

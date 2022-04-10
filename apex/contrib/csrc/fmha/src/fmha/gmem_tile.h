@@ -60,7 +60,7 @@ struct Gmem_tile_qkv {
 
     // Ctor.
     template< typename Params, typename BInfo >
-    inline __device__ Gmem_tile_qkv(const Params &params, const int qkv_offset, const BInfo &binfo, const int tidx)
+    inline __device__ Gmem_tile_qkv(const Params &params, const int qkv_offset, const int seql_offset, const BInfo &binfo, const int tidx)
         : params_qkv_stride_in_bytes_(params.qkv_stride_in_bytes)
         , actual_seqlen(binfo.actual_seqlen)
         , qkv_ptr_(reinterpret_cast<char *>(params.qkv_ptr)) {
@@ -76,7 +76,7 @@ struct Gmem_tile_qkv {
         // The row offset in the batched GEMM. For each seq element, we store QKV in that order.
         int64_t row_offset = (int64_t)row * params.qkv_stride_in_bytes;
         // Add the block index.
-        row_offset += (int64_t)((binfo.sum_s * NUM_MATS + qkv_offset) * binfo.h + binfo.bidh) * BYTES_PER_ROW;
+        row_offset += (int64_t)(((binfo.sum_s + seql_offset) * NUM_MATS + qkv_offset) * binfo.h + binfo.bidh) * BYTES_PER_ROW;
 
         // Assemble the final pointer.
         qkv_ptr_ += row_offset + col * BYTES_PER_LDG;
@@ -178,7 +178,7 @@ struct Gmem_tile_o {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_o(const Params &params, const BInfo &binfo, int tidx)
+    inline __device__ Gmem_tile_o(const Params &params, const int seql_offset, const BInfo &binfo, int tidx)
         : params_o_stride_in_bytes_(params.o_stride_in_bytes)
         , actual_seqlen_(binfo.actual_seqlen)
         , o_ptr_(reinterpret_cast<char *>(params.o_ptr)) {
@@ -192,7 +192,7 @@ struct Gmem_tile_o {
         row_ = row;
 
         // The row offset in the batched GEMM.
-        int64_t row_offset = (int64_t)row * params.o_stride_in_bytes + binfo.bidx * BYTES_PER_ROW;
+        int64_t row_offset = (int64_t)row * params.o_stride_in_bytes + ((binfo.sum_s + seql_offset) * binfo.h + binfo.bidh) * BYTES_PER_ROW; //binfo.bidx * BYTES_PER_ROW;
         // Assemble the final pointer.
         o_ptr_ += row_offset + col * BYTES_PER_STG;
 
@@ -220,6 +220,48 @@ struct Gmem_tile_o {
             if( !HAS_INCOMPLETE_STG || (jj < STGS - 1 || this->is_active_for_last_stg_) ) {
                 fmha::stg(this->o_ptr_ + jj * ROWS_PER_STG * this->params_o_stride_in_bytes_, out);
             }
+        }
+    }
+
+    inline __device__ void store_add(const uint4 (&src)[STGS_PER_LOOP], int mi, float *smem_cur_sums_p, float *smem_cur_maxs_p, float *smem_old_sums_p, float *smem_old_maxs_p) {
+
+        #pragma unroll
+        for( int ii = 0; ii < STGS_PER_LOOP; ++ii ) {
+            int jj = mi * STGS_PER_LOOP + ii;
+            if( this->row_ + jj * ROWS_PER_STG >= this->actual_seqlen_ ) {
+                break;
+            }
+
+            
+            if(!( !HAS_INCOMPLETE_STG || (jj < STGS - 1 || this->is_active_for_last_stg_) )) {
+                continue;
+            }
+
+            float x = reinterpret_cast<const float &>(src[ii].x);
+            float y = reinterpret_cast<const float &>(src[ii].y);
+            float z = reinterpret_cast<const float &>(src[ii].z);
+            float w = reinterpret_cast<const float &>(src[ii].w);
+
+
+            void *ptr = this->o_ptr_ + jj * ROWS_PER_STG * this->params_o_stride_in_bytes_;
+
+            uint2 oldv;
+            fmha::ldg(oldv, ptr);
+
+            float ox, oy, oz, ow;
+            half4_to_float4(oldv, ox, oy, oz, ow);
+
+            int irow = this->row_ % ROWS;
+            float rcoef = __expf(smem_old_maxs_p[irow] - smem_cur_maxs_p[irow]) * smem_old_sums_p[irow] / smem_cur_sums_p[irow];
+
+            x += ox * rcoef;
+            y += oy * rcoef;
+            z += oz * rcoef;
+            w += ow * rcoef;
+
+            uint2 out = float4_to_half4(x, y, z, w);
+
+            fmha::stg(ptr, out);
         }
     }
 

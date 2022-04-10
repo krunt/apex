@@ -28,7 +28,7 @@
 #include "fmha.h"
 #include "fmha_fprop_kernel_1xN.h"
 
-using Kernel_traits = FMHA_kernel_traits<512, 64, 16, 1, 8, 0x00u>;
+using Kernel_traits = FMHA_kernel_traits<512, 64, 16, 1, 8, 0x08u>;
 
 template<bool Is_training>
 __global__ 
@@ -38,28 +38,17 @@ void fmha_fprop_fp16_512_64_sm80_kernel(Fused_multihead_attention_fprop_params p
     fmha::device_1xN<Kernel_traits, Is_training>(params, total_heads);
 }
 
-template<bool Is_training>
-__global__ 
-void fmha_fprop_fp16_512_64_sm80_kernel_nl(Fused_multihead_attention_fprop_params params,
-                                           const int num_full_heads,
-                                           const int num_main_groups,
-                                           const int main_group_size,
-                                           const int main_steps,
-                                           const int rest_steps) {
+void run_fmha_fp16_512_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure) {
 
-    fmha::device_1xN<Kernel_traits, Is_training>(
-        params, num_full_heads, num_main_groups, main_group_size, main_steps, rest_steps);
-}
+   auto kernel = launch_params.is_training ? &fmha_fprop_fp16_512_64_sm80_kernel<true> : &fmha_fprop_fp16_512_64_sm80_kernel<false>;
 
-void run_fmha_fp16_512_64_sm80_(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure) {
-
-    auto kernel = launch_params.is_training ? &fmha_fprop_fp16_512_64_sm80_kernel<true> : &fmha_fprop_fp16_512_64_sm80_kernel<false>;
-
-    constexpr int smem_size = fmha::get_dynamic_smem_size<Kernel_traits>();
+    int smem_size = fmha::get_dynamic_smem_size<Kernel_traits>(launch_params.params);
 
     if( smem_size >= 48 * 1024 ) {
         FMHA_CHECK_CUDA(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
     }
+
+    printf("fwd: smem_size=%d\n", smem_size);
 
     const int sm_count = launch_params.props->multiProcessorCount;
     int ctas_per_sm;
@@ -89,49 +78,3 @@ void run_fmha_fp16_512_64_sm80_(Launch_params<Fused_multihead_attention_fprop_pa
 
 }
 
-void run_fmha_fp16_512_64_sm80_nl_(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure) {
-
-    auto kernel = launch_params.is_training ? &fmha_fprop_fp16_512_64_sm80_kernel_nl<true> : &fmha_fprop_fp16_512_64_sm80_kernel_nl<false>;
-
-    constexpr int smem_size = fmha::get_dynamic_smem_size<Kernel_traits>();
-
-    if( smem_size >= 48 * 1024 ) {
-        FMHA_CHECK_CUDA(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
-    }
-
-    const int sm_count = launch_params.props->multiProcessorCount;
-    int ctas_per_sm;
-    FMHA_CHECK_CUDA(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&ctas_per_sm, kernel, Kernel_traits::THREADS, smem_size));
-    int total_ctas = sm_count * ctas_per_sm;
-
-    if(configure) {
-        const int heads_total = launch_params.params.b * launch_params.params.h;
-        std::tie(launch_params.num_full_heads,
-                 launch_params.num_main_groups, 
-                 launch_params.heads_last_wave, 
-                 launch_params.main_steps, 
-                 launch_params.rest_steps, 
-                 launch_params.elts_per_thread) = fmha::work_dist<Kernel_traits>(total_ctas, heads_total);
-        return;
-    }
-
-    dim3 grid(total_ctas);
-    kernel<<<grid, Kernel_traits::THREADS, smem_size, launch_params.stream>>>(
-        launch_params.params,
-        launch_params.num_full_heads, 
-        launch_params.num_main_groups, 
-        launch_params.heads_last_wave, 
-        launch_params.main_steps, 
-        launch_params.rest_steps);
-
-    FMHA_CHECK_CUDA(cudaPeekAtLastError());
-
-}
-
-void run_fmha_fp16_512_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure) {
-    if( launch_params.is_nl ) {
-        run_fmha_fp16_512_64_sm80_nl_(launch_params, configure);
-    } else {
-        run_fmha_fp16_512_64_sm80_(launch_params, configure);
-    }
-}
