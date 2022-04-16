@@ -41,6 +41,8 @@ void set_params(Fused_multihead_attention_fprop_params &params,
                 void *qkv_packed_d,
                 void *cu_seqlens_d,
                 void *o_packed_d,
+                void *cmaxs_d,
+                void *csums_d,
                 // void *s_d,
                 float p_dropout) {
 
@@ -57,6 +59,9 @@ void set_params(Fused_multihead_attention_fprop_params &params,
     params.o_stride_in_bytes = get_size_in_bytes(h * d, data_type);
 
     params.cu_seqlens = static_cast<int *>(cu_seqlens_d);
+
+    params.maxs_ptr = cmaxs_d;
+    params.sums_ptr = csums_d;
 
     // S = softmax(P)
     // params.s_ptr = s_d;
@@ -156,6 +161,12 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     ctx.zero_();
     // }
 
+    auto copts = qkv.options();
+    copts = copts.dtype(torch::kFloat32);
+
+    auto cmaxs = torch::zeros({ batch_size, num_heads, max_seq_len }, copts);
+    auto csums = torch::zeros({ batch_size, num_heads, max_seq_len }, copts);
+
     auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
         gen_, at::cuda::detail::getDefaultCUDAGenerator());
 
@@ -169,6 +180,8 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
                qkv.data_ptr(),
                cu_seqlens.data_ptr(),
                ctx.data_ptr(),
+               cmaxs.data_ptr(),
+               csums.data_ptr(),
             //    s.data_ptr(),
                p_dropout);
 

@@ -72,6 +72,10 @@ struct Fused_multihead_attention_fprop_params : public Qkv_params {
     // The O matrix (output).
     void * __restrict__ o_ptr;
 
+    void * __restrict__ maxs_ptr;
+    
+    void * __restrict__ sums_ptr;
+
     // The stride between rows of O.
     int64_t o_stride_in_bytes;
 

@@ -232,10 +232,19 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Shared memory.
     extern __shared__ char smem_[];
 
-    float *smem_old_maxs = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX];
-    float *smem_old_sums = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX + params.max_s * sizeof(float)];
-    float *smem_cur_maxs = &smem_old_sums[params.max_s];
-    float *smem_cur_sums = &smem_cur_maxs[Cta_tile_p::M];
+    // float *smem_old_maxs = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX];
+    // float *smem_old_sums = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX + params.max_s * sizeof(float)];
+    // float *smem_cur_maxs = &smem_old_sums[params.max_s];
+    // float *smem_cur_sums = &smem_cur_maxs[Cta_tile_p::M];
+
+    float *smem_old_maxs = (float*)params.maxs_ptr;
+    smem_old_maxs = &smem_old_maxs[(bidb * params.h + bidh) * params.max_s];
+    
+    float *smem_old_sums = (float*)params.sums_ptr;
+    smem_old_sums = &smem_old_sums[(bidb * params.h + bidh) * params.max_s];
+
+    float *smem_cur_maxs = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX];
+    float *smem_cur_sums = (float*)&smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE + Gemm1::SMEM_BYTES_SOFTMAX + Cta_tile_p::M * sizeof(float)];
 
     // The thread index.
     const int tidx = threadIdx.x;
@@ -327,8 +336,6 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     Softmax softmax(params, &smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE], bidb, tidx);
 
     
-    
-
     // Load over the entire sequence length.
     for( int l = 0; l < steps; l++ ) {
         if(begin + l * Cta_tile_p::M >= binfo.actual_seqlen) break;
