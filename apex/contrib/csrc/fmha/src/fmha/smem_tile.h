@@ -943,7 +943,7 @@ struct Smem_tile_v : public fmha::Smem_tile_without_skews<Cta_tile, Cta_tile::K,
             if( Mma_tile::MMAS_N == 4 ) {
                 this->smem_read_offset_ ^= BYTES_PER_LDS * (ni % 2 == 0 ? 2 : 6);
             } else {
-                assert(false);  // Not implemented!
+                // assert(false);  // Not implemented!
             }
         }
     }
@@ -996,7 +996,7 @@ struct Smem_tile_o {
     // Is the thread active for the last LDS of the series?
     int is_active_for_last_lds_;
 
-    static_assert(BYTES_PER_ROW == 64 * 4 * Cta_tile::WARPS_K);
+    // static_assert(BYTES_PER_ROW == 64 * 4 * Cta_tile::WARPS_K);
     static_assert(LOOPS == 1 || LOOPS == (int)Mma_tile::MMAS_M, "");
 
     // Ctor.

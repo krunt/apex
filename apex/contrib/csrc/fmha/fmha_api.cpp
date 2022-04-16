@@ -107,6 +107,8 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     // int seq_len = 256;
     // auto launch = &run_fmha_fp16_256_64_sm80;
 
+    // int seq_len = 256;
+    // auto launch = &run_fmha_fp16_256_128_sm80;
 
     // if( max_seq_len <= 128 ) {
     //     seq_len = 128;
@@ -143,7 +145,7 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     const int num_heads = sizes[H_DIM];
     const int head_size = sizes[D_DIM];
     TORCH_CHECK(batch_size > 0);
-    TORCH_CHECK(head_size == 64);
+    TORCH_CHECK(head_size == 64 || head_size == 128);
     auto opts = qkv.options();
 
     auto ctx = torch::zeros({ total, num_heads, head_size }, opts);
