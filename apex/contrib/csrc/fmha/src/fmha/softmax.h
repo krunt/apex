@@ -261,6 +261,11 @@ struct Softmax_base {
         old_max_out[wrow_ + ROW_STRIDE] = max[1];
     }
 
+    inline __device__ void update_cur_dgradsum(float (&sum)[MMAS_M * 2], float *smem_old_sums_p) {
+        sum[0] += smem_old_sums_p[wrow_];
+        sum[1] += smem_old_sums_p[wrow_ + ROW_STRIDE];
+    }
+
     // The pointer to the mask.
     const char *packed_mask_ptr_;
     // Shared memory for the CTA-wide reduction.
@@ -301,9 +306,9 @@ struct Softmax : public Softmax_base<Cta_tile, Kernel_traits> {
     static_assert(Smem_tile_red::ELTS_PER_TILE == Cta_tile::M * WARPS_N);
     // Ctor.
     template<typename Params>
-    inline __device__ Softmax(const Params &params, void *smem, int bidb, int tidx)
+    inline __device__ Softmax(const Params &params, uint32_t scale_bmm1, void *smem, int bidb, int tidx)
         : Base(params, smem, bidb, tidx)
-        , params_scale_bmm1_(params.scale_bmm1) 
+        , params_scale_bmm1_(scale_bmm1)
         , smem_sum_(static_cast<float*>(smem), tidx)
         , smem_max_(static_cast<float*>(smem) + Smem_tile_red::ELTS_PER_TILE, tidx) {
     }

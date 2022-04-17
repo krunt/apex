@@ -452,8 +452,8 @@ struct Gmem_tile_dout : public Base {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_dout(const Params &params, const BInfo &binfo, int tidx)
-        : Base(params, 0, binfo, tidx) {
+    inline __device__ Gmem_tile_dout(const Params &params, int seql_offset, const BInfo &binfo, int tidx)
+        : Base(params, 0, seql_offset, binfo, tidx) {
 
         this->qkv_ptr_ = reinterpret_cast<char *>(params.o_ptr);
         this->params_qkv_stride_in_bytes_ = params.o_stride_in_bytes;  // needed for move

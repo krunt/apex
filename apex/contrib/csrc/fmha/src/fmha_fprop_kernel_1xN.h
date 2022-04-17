@@ -289,7 +289,7 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Trigger the loads for V.
     gmem_v.load(smem_v);
 
-    const uint32_t scale_bmm1 = reinterpret_cast<const uint32_t&>(params.scale_bmm1);
+    const uint32_t scale_bmm1 = reinterpret_cast<const uint32_t&>(params.fwd_scale_bmm1);
     #pragma unroll
     for(int it=0;it < Gmem_tile_k::LDGS;it++){
         gmem_k.fetch_[it] = fmha::hmul8(scale_bmm1, gmem_k.fetch_[it]);
@@ -334,7 +334,7 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     gemm_q_k.load_k();
 
     // Create the object to do the softmax.
-    Softmax softmax(params, &smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE], bidb, tidx);
+    Softmax softmax(params, params.fwd_scale_bmm1, &smem_[Gemm1::SMEM_OFFSET_O + Smem_tile_o::BYTES_PER_TILE], bidb, tidx);
 
     
     // Load over the entire sequence length.
@@ -344,11 +344,11 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         float *smem_old_maxs_p = &smem_old_maxs[l * Cta_tile_p::M];
         float *smem_old_sums_p = &smem_old_sums[l * Cta_tile_p::M];
 
-        if (bids == 0) {
-            smem_old_maxs_p[threadIdx.x % Cta_tile_p::M] = -10000;
-            smem_old_sums_p[threadIdx.x % Cta_tile_p::M] = 0;
-            __syncthreads();
-        }
+        // if (bids == 0) {
+        //     smem_old_maxs_p[threadIdx.x % Cta_tile_p::M] = -10000;
+        //     smem_old_sums_p[threadIdx.x % Cta_tile_p::M] = 0;
+        //     __syncthreads();
+        // }
 
         // Declare the accumulators for the 1st gemm.
         fmha::Fragment_accumulator acc_p[Mma_tile_p::MMAS_M][Mma_tile_p::MMAS_N];

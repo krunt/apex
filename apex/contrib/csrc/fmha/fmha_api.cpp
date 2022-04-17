@@ -43,6 +43,7 @@ void set_params(Fused_multihead_attention_fprop_params &params,
                 void *o_packed_d,
                 void *cmaxs_d,
                 void *csums_d,
+                void *dgrad_osum_d,
                 void *s_d,
                 float p_dropout) {
 
@@ -62,6 +63,7 @@ void set_params(Fused_multihead_attention_fprop_params &params,
 
     params.maxs_ptr = cmaxs_d;
     params.sums_ptr = csums_d;
+    params.dgrad_osum_ptr = dgrad_osum_d;
 
     // S = softmax(P)
     params.s_ptr = s_d;
@@ -80,9 +82,9 @@ void set_params(Fused_multihead_attention_fprop_params &params,
     constexpr float scale_softmax = 1.f;
     constexpr float scale_bmm2 = 1.f;
 
-    set_alpha(params.scale_bmm1, scale_bmm1, data_type);
-    set_alpha(params.scale_softmax, scale_softmax, acc_type);
-    set_alpha(params.scale_bmm2, scale_bmm2, data_type);
+    set_alpha(params.fwd_scale_bmm1, scale_bmm1, data_type);
+    set_alpha(params.fwd_scale_softmax, scale_softmax, acc_type);
+    set_alpha(params.fwd_scale_bmm2, scale_bmm2, data_type);
 
     // Set this to probability of keeping an element to simplify things.
     params.p_dropout = 1.f - p_dropout;
@@ -165,7 +167,7 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     auto copts = qkv.options();
     copts = copts.dtype(torch::kFloat32);
 
-    auto cmaxs = torch::zeros({ batch_size, num_heads, max_seq_len }, copts);
+    auto cmaxs = -10000 * torch::ones({ batch_size, num_heads, max_seq_len }, copts);
     auto csums = torch::zeros({ batch_size, num_heads, max_seq_len }, copts);
 
     auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
@@ -182,6 +184,7 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
                ctx.data_ptr(),
                cmaxs.data_ptr(),
                csums.data_ptr(),
+               nullptr, // dgrad_osum
                nullptr,
             //    softmax.data_ptr(),
             //    s.data_ptr(),
@@ -268,6 +271,11 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
 
     // auto dqkv = torch::empty_like(qkv);
     auto dqkv = torch::zeros_like(qkv);
+
+    auto copts = qkv.options();
+    copts = copts.dtype(torch::kFloat32);
+
+    auto dgrad_osums = torch::zeros({ batch_size, num_heads, max_seq_len }, copts);
     
     auto softmax = torch::zeros({ batch_size, num_heads, max_seq_len, seq_len }, qkv.options());
 
@@ -288,20 +296,20 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
                dout.data_ptr(),     // we set o_ptr to dout
                cmaxs.data_ptr(),
                csums.data_ptr(),
+               dgrad_osums.data_ptr(),
                softmax.data_ptr(),  // softmax gets overwritten by dP!
                p_dropout);
 
-    // TODO:!!!
-    // we're re-using these scales
-    // Data_type acc_type = DATA_TYPE_FP32;
-    // set_alpha(params.scale_bmm1, 1.f, acc_type);
-    // set_alpha(params.scale_softmax, 1.f / sqrtf(head_size), acc_type);
-    // set_alpha(params.scale_bmm2, 1.f, DATA_TYPE_FP16);
+
+    Data_type acc_type = DATA_TYPE_FP32;
+    set_alpha(params.bwd_scale_bmm1, 1.f, acc_type);
+    set_alpha(params.bwd_scale_softmax, 1.f / sqrtf(head_size), acc_type);
+    set_alpha(params.bwd_scale_bmm2, 1.f, DATA_TYPE_FP16);
 
     params.dqkv_ptr = dqkv.data_ptr();
 
     launch(params, stream);
-    return { dqkv, softmax };
+    return { dqkv, dgrad_osums, softmax };
 }
 
 #if 0

@@ -76,6 +76,8 @@ struct Fused_multihead_attention_fprop_params : public Qkv_params {
     
     void * __restrict__ sums_ptr;
 
+    void * __restrict__ dgrad_osum_ptr;
+
     // The stride between rows of O.
     int64_t o_stride_in_bytes;
 
@@ -90,7 +92,8 @@ struct Fused_multihead_attention_fprop_params : public Qkv_params {
     int max_s;
 
     // The scaling factors for the kernel.
-    uint32_t scale_bmm1, scale_softmax, scale_bmm2;
+    uint32_t fwd_scale_bmm1, fwd_scale_softmax, fwd_scale_bmm2;
+    uint32_t bwd_scale_bmm1, bwd_scale_softmax, bwd_scale_bmm2;
 
     // array of length b+1 holding starting offset of each sequence.
     int * __restrict__ cu_seqlens;

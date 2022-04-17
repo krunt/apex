@@ -29,7 +29,7 @@
 #include "fmha_dgrad_kernel_1xN_reload.h"
 
 // using Kernel_traits = FMHA_kernel_traits< 256, 64, 16, 1, 4, 0x08u>;
-using Kernel_traits = FMHA_kernel_traits<256, 64, 16, 1, 4, 0x00u>; //0x08u>;
+using Kernel_traits = FMHA_kernel_traits<256, 64, 16, 1, 4, 0x08u>; //0x08u>;
 
 extern "C" __global__ void fmha_dgrad_fp16_256_64_sm80_kernel(Fused_multihead_attention_fprop_params params) {
     fmha::dgrad_device_1xN<Kernel_traits>(params);
@@ -50,7 +50,7 @@ void run_fmha_dgrad_fp16_256_64_sm80(const Fused_multihead_attention_fprop_param
     constexpr int smem_size_dv = smem_size_s + 2 * smem_size_q + smem_size_v + smem_size_softmax;
     constexpr int smem_size_dq_dk = smem_size_s + smem_size_o + smem_size_q + smem_size_v;
     int smem_size = std::max(smem_size_dv, smem_size_dq_dk);
-    smem_size = std::max(smem_size, 90 * 1024);
+    smem_size = std::max(smem_size, 90 * 1024); // TODO!!
 
     printf("bwd: smem_size_dv=%d smem_size_dq_dk=%d smem_size=%d\n", smem_size_dv, smem_size_dq_dk, smem_size);
     printf("bwd dv: smem_size_s=%d+2*smem_size_q=%d+smem_size_v=%d+smem_size_softmax=%d\n", smem_size_s, smem_size_q, smem_size_v, smem_size_softmax);
