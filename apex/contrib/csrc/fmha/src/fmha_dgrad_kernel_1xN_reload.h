@@ -581,7 +581,6 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     fmha::Fragment_accumulator acc_dv[Mma_tile_dv::MMAS_M][Mma_tile_dv::MMAS_N];
     fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dv::WARPS_K>::apply(acc_dv);
 
-    enum { STEPS = Cta_tile_p::N / Cta_tile_p::M };
     // Load over the entire sequence length.
     for( int l = 0; l < steps; l++ ) {
         const int loop = l * Cta_tile_p::M;
@@ -853,7 +852,6 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     enum { BITS_PER_ELT_S = sizeof(fmha::A_type) * 8 };
 
     enum { THREADS_PER_ROW = 32 };
-    enum { STEPS = Cta_tile_p::N / Cta_tile_p::M };
 
     // Declare the accumulators for the 2nd gemm.
     fmha::Fragment_accumulator acc_dk[Mma_tile_dk::MMAS_M][Mma_tile_dk::MMAS_N];
@@ -928,7 +926,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
             }
 
             // Output the values.
-            gmem_o.store(out, ii);
+            gmem_o.store_add(out, ii);
         }
 
         // Move to the next part of the output.
@@ -952,7 +950,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
         }
 
         // Commit the values for Q into shared memory.
-        if( l < STEPS - 1) {
+        if( l < steps - 1) {
             gmem_q.commit(smem_q);
         }
 

@@ -223,6 +223,43 @@ struct Gmem_tile_o {
         }
     }
 
+    // Store data to global memory.
+    inline __device__ void store_add(const uint4 (&src)[STGS_PER_LOOP], int mi) {
+
+        #pragma unroll
+        for( int ii = 0; ii < STGS_PER_LOOP; ++ii ) {
+            int jj = mi * STGS_PER_LOOP + ii;
+            if( this->row_ + jj * ROWS_PER_STG >= this->actual_seqlen_ ) {
+                break;
+            }
+
+            if(!( !HAS_INCOMPLETE_STG || (jj < STGS - 1 || this->is_active_for_last_stg_) )) {
+                continue;
+            }
+
+            float x = reinterpret_cast<const float &>(src[ii].x);
+            float y = reinterpret_cast<const float &>(src[ii].y);
+            float z = reinterpret_cast<const float &>(src[ii].z);
+            float w = reinterpret_cast<const float &>(src[ii].w);
+
+            void *ptr = this->o_ptr_ + jj * ROWS_PER_STG * this->params_o_stride_in_bytes_;
+
+            uint2 oldv;
+            fmha::ldg(oldv, ptr);
+
+            float ox, oy, oz, ow;
+            half4_to_float4(oldv, ox, oy, oz, ow);
+
+            x += ox;
+            y += oy;
+            z += oz;
+            w += ow;
+
+            uint2 out = float4_to_half4(x, y, z, w);
+            fmha::stg(ptr, out);
+        }
+    }
+
     inline __device__ void store_add(const uint4 (&src)[STGS_PER_LOOP], int mi, float *smem_cur_sums_p, float *smem_cur_maxs_p, float *smem_old_sums_p, float *smem_old_maxs_p) {
 
         #pragma unroll
