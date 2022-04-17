@@ -476,8 +476,8 @@ struct Gmem_tile_dq : public Base {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_dq(const Params &params, const BInfo &binfo, int tidx) 
-        : Base(params, binfo, tidx) {
+    inline __device__ Gmem_tile_dq(const Params &params, const int seql_offset, const BInfo &binfo, int tidx) 
+        : Base(params, seql_offset, binfo, tidx) {
         this->o_ptr_ = reinterpret_cast<char *>(params.dqkv_ptr);
         this->params_o_stride_in_bytes_ = params.qkv_stride_in_bytes;  // needed for move
 
