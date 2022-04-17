@@ -182,7 +182,8 @@ struct Gemm_Q_K<Kernel_traits, false> : public Gemm_Q_K_base<Kernel_traits> {
 
 template<typename Kernel_traits>
 size_t get_dynamic_smem_size(const Fused_multihead_attention_fprop_params &params){
-    size_t ret = 2 * params.max_s * sizeof(float);
+    // size_t ret = 2 * params.max_s * sizeof(float);
+    size_t ret = 0;
     ret += 2 * 16 * sizeof(float); // for current max/sum
     return ret + Gemm_Q_K<Kernel_traits, Kernel_traits::K_IN_REGS>::SMEM_BYTES;
 }
@@ -258,11 +259,11 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Allocate the global memory tile loader for O.
     Gmem_tile_o gmem_o(params, 0, binfo, tidx);
     // Allocate the global memory tile loader for S.
-    // Gmem_tile_s gmem_s(params, binfo, tidx);
+    Gmem_tile_s gmem_s(params, binfo, tidx);
     // Wind gmem tiles to the correct position.
     for( int it = 0; it < begin; it++ ) {
         gmem_q.move();
-        // gmem_s.move();
+        gmem_s.move();
         gmem_o.move();
     }
 
@@ -339,14 +340,15 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // Load over the entire sequence length.
     for( int l = 0; l < steps; l++ ) {
         if(begin + l * Cta_tile_p::M >= binfo.actual_seqlen) break;
-        if (bids == 0) {
-            smem_old_maxs[threadIdx.x % Cta_tile_p::M] = -10000;
-            smem_old_sums[threadIdx.x % Cta_tile_p::M] = 0;
-            __syncthreads();
-        }
 
         float *smem_old_maxs_p = &smem_old_maxs[l * Cta_tile_p::M];
         float *smem_old_sums_p = &smem_old_sums[l * Cta_tile_p::M];
+
+        if (bids == 0) {
+            smem_old_maxs_p[threadIdx.x % Cta_tile_p::M] = -10000;
+            smem_old_sums_p[threadIdx.x % Cta_tile_p::M] = 0;
+            __syncthreads();
+        }
 
         // Declare the accumulators for the 1st gemm.
         fmha::Fragment_accumulator acc_p[Mma_tile_p::MMAS_M][Mma_tile_p::MMAS_N];
@@ -376,7 +378,7 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
             __syncthreads();
         }
         // Compute the max.
-        float p_max[Mma_tile_p::MMAS_M * 2];
+        float p_max[Mma_tile_p::MMAS_M * 2]; // = { 0, 0 };
         //softmax.template reduce<fmha::Max_>(p_max);
         softmax.reduce_max(p_max);
 
@@ -401,27 +403,27 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
 
         using Frag_p = fmha::Fragment_a<fmha::Row>;
         Frag_p frag_p[Mma_tile_o::MMAS_K][Mma_tile_o::MMAS_M];
-        if( Is_training ) {
-            auto encode_dropout = [](bool keep, float val) { return keep ? val : -val; };
-            #pragma unroll
-            for( int mi = 0; mi < Mma_tile_p::MMAS_M; mi++ ) {
-                #pragma unroll
-                for( int ii = 0; ii < 2; ii++ ) {
-                    #pragma unroll
-                    for( int ni = 0; ni < Mma_tile_p::MMAS_N; ni++ ) {
-                        float4 tmp = uniform4(ph());
-                        // We encode the dropout pattern in the sign bit of the non-negative softmax to distinguish from pre-existing zeros
-                        softmax.elt_[2 * mi + ii][4 * ni + 0] =
-                            encode_dropout(tmp.x <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 0]);
-                        softmax.elt_[2 * mi + ii][4 * ni + 1] =
-                            encode_dropout(tmp.y <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 1]);
-                        softmax.elt_[2 * mi + ii][4 * ni + 2] =
-                            encode_dropout(tmp.z <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 2]);
-                        softmax.elt_[2 * mi + ii][4 * ni + 3] =
-                            encode_dropout(tmp.w <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 3]);
-                    }
-                }
-            }
+        if( 1 ) {
+            // auto encode_dropout = [](bool keep, float val) { return keep ? val : -val; };
+            // #pragma unroll
+            // for( int mi = 0; mi < Mma_tile_p::MMAS_M; mi++ ) {
+            //     #pragma unroll
+            //     for( int ii = 0; ii < 2; ii++ ) {
+            //         #pragma unroll
+            //         for( int ni = 0; ni < Mma_tile_p::MMAS_N; ni++ ) {
+            //             float4 tmp = uniform4(ph());
+            //             // We encode the dropout pattern in the sign bit of the non-negative softmax to distinguish from pre-existing zeros
+            //             softmax.elt_[2 * mi + ii][4 * ni + 0] =
+            //                 encode_dropout(tmp.x <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 0]);
+            //             softmax.elt_[2 * mi + ii][4 * ni + 1] =
+            //                 encode_dropout(tmp.y <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 1]);
+            //             softmax.elt_[2 * mi + ii][4 * ni + 2] =
+            //                 encode_dropout(tmp.z <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 2]);
+            //             softmax.elt_[2 * mi + ii][4 * ni + 3] =
+            //                 encode_dropout(tmp.w <= params.p_dropout, softmax.elt_[2 * mi + ii][4 * ni + 3]);
+            //         }
+            //     }
+            // }
             softmax.pack(frag_p);
             // gmem_s.store(frag_p, mask);
             // gmem_s.move();
@@ -467,7 +469,6 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
         uint4 out[Gmem_tile_o::STGS_PER_LOOP];
         smem_o.load(out);
 
-        // gmem_o.store(out, 0);
         gmem_o.store_add(out, 0, smem_cur_sums, smem_cur_maxs, smem_old_sums_p, smem_old_maxs_p);
 
         // Move to the next part of the output.

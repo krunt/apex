@@ -509,7 +509,7 @@ static inline __device__ void half2_to_float2(float &x, float &y, uint32_t h) {
     y = tmp.y;
 }
 
-static inline __device__ float4 half4_to_float4(uint2 val, float &a, float &b, float &c, float &d) {
+static inline __device__ void half4_to_float4(uint2 val, float &a, float &b, float &c, float &d) {
     float2 x = half2_to_float2(val.x);
     float2 y = half2_to_float2(val.y);
     a = x.x;

@@ -329,7 +329,8 @@ struct Gmem_tile_mma_sd {
         size_t bidx = bidb * params.h + bidh;
 
         // Set store location for each thread at the beginning of the loop
-        ptr_ += bidx * BLOCK_STRIDE_BYTES + tidx * BYTES_PER_STG;
+        // ptr_ += bidx * BLOCK_STRIDE_BYTES + tidx * BYTES_PER_STG;
+        ptr_ += bidx * (params.max_s * SEQLEN * BYTES_PER_ELEMENT) + tidx * BYTES_PER_STG;
     }
 
     // Store to global memory.

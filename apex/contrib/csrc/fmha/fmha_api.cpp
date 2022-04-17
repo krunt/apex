@@ -43,7 +43,7 @@ void set_params(Fused_multihead_attention_fprop_params &params,
                 void *o_packed_d,
                 void *cmaxs_d,
                 void *csums_d,
-                // void *s_d,
+                void *s_d,
                 float p_dropout) {
 
     Data_type acc_type = DATA_TYPE_FP32;
@@ -64,8 +64,8 @@ void set_params(Fused_multihead_attention_fprop_params &params,
     params.sums_ptr = csums_d;
 
     // S = softmax(P)
-    // params.s_ptr = s_d;
-    // params.s_stride_in_bytes = get_size_in_bytes(b * h * s, data_type);
+    params.s_ptr = s_d;
+    params.s_stride_in_bytes = get_size_in_bytes(b * h * s, data_type);
 
     // Set the dimensions.
     params.b = b;
@@ -106,11 +106,11 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     Launch_params<Fused_multihead_attention_fprop_params> launch_params(dprops, stream, is_training, is_nl);
 
-    int seq_len = 512;
-    auto launch = &run_fmha_fp16_512_64_sm80;
+    // int seq_len = 512;
+    // auto launch = &run_fmha_fp16_512_64_sm80;
 
-    // int seq_len = 256;
-    // auto launch = &run_fmha_fp16_256_64_sm80;
+    int seq_len = 256;
+    auto launch = &run_fmha_fp16_256_64_sm80;
 
     // int seq_len = 256;
     // auto launch = &run_fmha_fp16_256_128_sm80;
@@ -156,10 +156,11 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     auto ctx = torch::zeros({ total, num_heads, head_size }, opts);
 
     // auto s = torch::empty({ batch_size, num_heads, seq_len, seq_len }, opts);
+    // auto softmax = torch::zeros({ batch_size, num_heads, max_seq_len, seq_len }, opts);
 
-    // if( zero_tensors ) {
-    ctx.zero_();
-    // }
+    if( zero_tensors ) {
+        ctx.zero_();
+    }
 
     auto copts = qkv.options();
     copts = copts.dtype(torch::kFloat32);
@@ -169,7 +170,6 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
 
     auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
         gen_, at::cuda::detail::getDefaultCUDAGenerator());
-
 
     set_params(launch_params.params,
                batch_size,
@@ -182,10 +182,12 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
                ctx.data_ptr(),
                cmaxs.data_ptr(),
                csums.data_ptr(),
+               nullptr,
+            //    softmax.data_ptr(),
             //    s.data_ptr(),
                p_dropout);
 
-    launch(launch_params, /*configure=*/ true);
+    // launch(launch_params, /*configure=*/ true);
     // number of times random will be generated per thread, to offset philox counter in thc random
     // state
     int64_t counter_offset = launch_params.elts_per_thread;
@@ -199,44 +201,50 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
 
     launch(launch_params, /*configure=*/ false);
 
-    return { ctx };
+    return { ctx, cmaxs, csums };
 }
 
-#if 0
 std::vector<at::Tensor>
 mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
         const at::Tensor &qkv,   // total x num_heads x 3 x head_size, total := \sum_{i=0}^{b} s_i
-        at::Tensor &softmax,     // b x h x s x s softmax and dmask - will be overwritten with dP
+        // at::Tensor &softmax,     // b x h x s x s softmax and dmask - will be overwritten with dP
         const at::Tensor &cu_seqlens,  // b+1
+        const at::Tensor &cmaxs,
+        const at::Tensor &csums,
         const float p_dropout,         // probability to drop
         const int max_seq_len,          // max sequence length to choose the kernel
         const bool zero_tensors
 ) {
     auto dprops = at::cuda::getCurrentDeviceProperties();
     TORCH_CHECK(dprops->major == 8); // && dprops->minor == 0);
-    int seq_len = 512;
-    auto launch = &run_fmha_dgrad_fp16_512_64_sm80;
-    if( max_seq_len <= 128 ) {
-        seq_len = 128;
-        launch = &run_fmha_dgrad_fp16_128_64_sm80;
-    } else if( max_seq_len <= 256 ) {
-        seq_len = 256;
-        launch = &run_fmha_dgrad_fp16_256_64_sm80;
-    } else if( max_seq_len <= 384 ) {
-        seq_len = 384;
-        launch = &run_fmha_dgrad_fp16_384_64_sm80;
-    } else if( max_seq_len <= 512 ) {
-        seq_len = 512;
-        launch = &run_fmha_dgrad_fp16_512_64_sm80;
-    } else {
-        TORCH_CHECK(false);
-    }
+
+    // int seq_len = 512;
+    // auto launch = &run_fmha_dgrad_fp16_512_64_sm80;
+
+    int seq_len = 256;
+    auto launch = &run_fmha_dgrad_fp16_256_64_sm80;
+
+    // if( max_seq_len <= 128 ) {
+    //     seq_len = 128;
+    //     launch = &run_fmha_dgrad_fp16_128_64_sm80;
+    // } else if( max_seq_len <= 256 ) {
+    //     seq_len = 256;
+    //     launch = &run_fmha_dgrad_fp16_256_64_sm80;
+    // } else if( max_seq_len <= 384 ) {
+    //     seq_len = 384;
+    //     launch = &run_fmha_dgrad_fp16_384_64_sm80;
+    // } else if( max_seq_len <= 512 ) {
+    //     seq_len = 512;
+    //     launch = &run_fmha_dgrad_fp16_512_64_sm80;
+    // } else {
+    //     TORCH_CHECK(false);
+    // }
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
 
     TORCH_CHECK(qkv.dtype() == torch::kFloat16);
     TORCH_CHECK(dout.dtype() == torch::kFloat16);
-    TORCH_CHECK(softmax.dtype() == torch::kFloat16);
+    // TORCH_CHECK(softmax.dtype() == torch::kFloat16);
     TORCH_CHECK(cu_seqlens.dtype() == torch::kInt32);
 
     TORCH_CHECK(qkv.is_cuda());
@@ -258,7 +266,10 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     TORCH_CHECK(batch_size > 0);
     TORCH_CHECK(head_size == 64);
 
-    auto dqkv = torch::empty_like(qkv);
+    // auto dqkv = torch::empty_like(qkv);
+    auto dqkv = torch::zeros_like(qkv);
+    
+    auto softmax = torch::zeros({ batch_size, num_heads, max_seq_len, seq_len }, qkv.options());
 
     if( zero_tensors ) {
         dqkv.zero_();
@@ -269,25 +280,31 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     set_params(params,
                batch_size,
                seq_len,
+               max_seq_len,
                num_heads,
                head_size,
                qkv.data_ptr(),
                cu_seqlens.data_ptr(),
                dout.data_ptr(),     // we set o_ptr to dout
+               cmaxs.data_ptr(),
+               csums.data_ptr(),
                softmax.data_ptr(),  // softmax gets overwritten by dP!
                p_dropout);
 
+    // TODO:!!!
     // we're re-using these scales
-    Data_type acc_type = DATA_TYPE_FP32;
-    set_alpha(params.scale_bmm1, 1.f, acc_type);
-    set_alpha(params.scale_softmax, 1.f / sqrtf(head_size), acc_type);
-    set_alpha(params.scale_bmm2, 1.f, DATA_TYPE_FP16);
+    // Data_type acc_type = DATA_TYPE_FP32;
+    // set_alpha(params.scale_bmm1, 1.f, acc_type);
+    // set_alpha(params.scale_softmax, 1.f / sqrtf(head_size), acc_type);
+    // set_alpha(params.scale_bmm2, 1.f, DATA_TYPE_FP16);
+
     params.dqkv_ptr = dqkv.data_ptr();
 
     launch(params, stream);
     return { dqkv, softmax };
 }
 
+#if 0
 std::vector<at::Tensor> mha_bwd_nl(const at::Tensor &dout,        // total x num_heads, x head_size
                                 const at::Tensor &qkv,         // total x num_heads x 3 x head_size, total := \sum_{i=0}^{b} s_i
                                 at::Tensor &softmax,           // b x h x s x s softmax and dmask - will be overwritten with dP
@@ -381,6 +398,6 @@ std::vector<at::Tensor> mha_bwd_nl(const at::Tensor &dout,        // total x num
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "Fused Multi-head Self-attention for BERT";  
     m.def("fwd", &mha_fwd, "Forward pass");
-    // m.def("bwd", &mha_bwd, "Backward pass");
+    m.def("bwd", &mha_bwd, "Backward pass");
     // m.def("bwd_nl", &mha_bwd_nl, "Backward pass (small-batch)");
 }
