@@ -309,7 +309,7 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     params.dqkv_ptr = dqkv.data_ptr();
 
     launch(params, stream);
-    return { dqkv, dgrad_osums, softmax };
+    return { dqkv };
 }
 
 #if 0

@@ -41,7 +41,7 @@ void fmha_fprop_fp16_256_64_sm80_kernel(Fused_multihead_attention_fprop_params p
 
 void run_fmha_fp16_256_64_sm80(Launch_params<Fused_multihead_attention_fprop_params> &launch_params, const bool configure) {
 
-   auto kernel = launch_params.is_training ? &fmha_fprop_fp16_256_64_sm80_kernel<true> : &fmha_fprop_fp16_256_64_sm80_kernel<false>;
+    auto kernel = launch_params.is_training ? &fmha_fprop_fp16_256_64_sm80_kernel<true> : &fmha_fprop_fp16_256_64_sm80_kernel<false>;
 
     int smem_size = fmha::get_dynamic_smem_size<Kernel_traits>(launch_params.params);
 
@@ -49,7 +49,7 @@ void run_fmha_fp16_256_64_sm80(Launch_params<Fused_multihead_attention_fprop_par
         FMHA_CHECK_CUDA(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
     }
 
-    printf("fwd: smem_size=%d\n", smem_size);
+    fprintf(stderr, "fwd: smem_size=%d\n", smem_size);
 
     const int sm_count = launch_params.props->multiProcessorCount;
     int ctas_per_sm;
@@ -57,18 +57,18 @@ void run_fmha_fp16_256_64_sm80(Launch_params<Fused_multihead_attention_fprop_par
     int total_ctas = sm_count * ctas_per_sm;
 
     const int heads_total = launch_params.params.b * launch_params.params.h;
-    // if(configure) {
+    if(configure) {
 
-    //     using Mma_tile_p = fmha::Hmma_tile<typename Kernel_traits::Cta_tile_p>;
-    //     constexpr size_t STEPS = Kernel_traits::Cta_tile_p::N / Kernel_traits::Cta_tile_p::M;
-    //     constexpr size_t MMAS_M = Mma_tile_p::MMAS_M;
-    //     constexpr size_t MMAS_N = Mma_tile_p::MMAS_N;
+        using Mma_tile_p = fmha::Hmma_tile<typename Kernel_traits::Cta_tile_p>;
+        constexpr size_t STEPS = Kernel_traits::Cta_tile_p::N / Kernel_traits::Cta_tile_p::M;
+        constexpr size_t MMAS_M = Mma_tile_p::MMAS_M;
+        constexpr size_t MMAS_N = Mma_tile_p::MMAS_N;
 
-    //     size_t heads_per_cta = ((heads_total + total_ctas - 1) / total_ctas);
-    //     size_t elts_per_head = STEPS * MMAS_M * MMAS_N * 8;
-    //     launch_params.elts_per_thread = heads_per_cta * elts_per_head;
-    //     return;
-    // }
+        size_t heads_per_cta = ((heads_total + total_ctas - 1) / total_ctas);
+        size_t elts_per_head = STEPS * MMAS_M * MMAS_N * 8;
+        launch_params.elts_per_thread = heads_per_cta * elts_per_head;
+        return;
+    }
 
     dim3 grid(total_ctas);
     kernel<<<grid, Kernel_traits::THREADS, smem_size, launch_params.stream>>>(

@@ -47,15 +47,17 @@ void run_fmha_dgrad_fp16_256_64_sm80(const Fused_multihead_attention_fprop_param
     static_assert(smem_size_s == 16 * 256 * 2);
     static_assert(smem_size_o == 16 * 64 * 4 * Kernel_traits::Cta_tile_p::WARPS_N);
 
-    constexpr int smem_size_dv = smem_size_s + 2 * smem_size_q + smem_size_v + smem_size_softmax;
-    constexpr int smem_size_dq_dk = smem_size_s + smem_size_o + smem_size_q + smem_size_v;
-    int smem_size = std::max(smem_size_dv, smem_size_dq_dk);
-    smem_size = std::max(smem_size, 90 * 1024); // TODO!!
+    int smem_size_remat_s = fmha::get_dynamic_smem_size<Kernel_traits>(params);
+    int smem_size_dv = smem_size_s + 2 * smem_size_q + smem_size_v + smem_size_softmax;
+    int smem_size_dq_dk = smem_size_s + smem_size_o + smem_size_q + smem_size_v;
+    int smem_size = std::max(std::max(smem_size_dv, smem_size_dq_dk), smem_size_remat_s);
 
-    printf("bwd: smem_size_dv=%d smem_size_dq_dk=%d smem_size=%d\n", smem_size_dv, smem_size_dq_dk, smem_size);
-    printf("bwd dv: smem_size_s=%d+2*smem_size_q=%d+smem_size_v=%d+smem_size_softmax=%d\n", smem_size_s, smem_size_q, smem_size_v, smem_size_softmax);
-    printf("bwd dq_dk: smem_size_s=%d+smem_size_o=%d+smem_size_q=%d+smem_size_v=%d\n", smem_size_s, smem_size_o, smem_size_q, smem_size_v);
-
+    fprintf(stderr, "bwd: smem_size_dv=%d smem_size_dq_dk=%d smem_size_remat_s=%d smem_size=%d\n", 
+        smem_size_dv, smem_size_dq_dk, smem_size_remat_s, smem_size);
+    fprintf(stderr, "bwd dv: smem_size_s=%d+2*smem_size_q=%d+smem_size_v=%d+smem_size_softmax=%d\n", 
+        smem_size_s, smem_size_q, smem_size_v, smem_size_softmax);
+    fprintf(stderr, "bwd dq_dk: smem_size_s=%d+smem_size_o=%d+smem_size_q=%d+smem_size_v=%d\n", 
+        smem_size_s, smem_size_o, smem_size_q, smem_size_v);
 
     if( smem_size >= 48 * 1024 ) {
         FMHA_CHECK_CUDA(cudaFuncSetAttribute(
