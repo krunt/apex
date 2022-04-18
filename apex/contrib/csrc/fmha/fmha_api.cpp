@@ -111,8 +111,11 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     // int seq_len = 512;
     // auto launch = &run_fmha_fp16_512_64_sm80;
 
-    int seq_len = 256;
-    auto launch = &run_fmha_fp16_256_64_sm80;
+    // int seq_len = 512;
+    // auto launch = &run_fmha_fp16_512_64_sm80;
+
+    int seq_len = 384;
+    auto launch = &run_fmha_fp16_384_64_sm80;
 
     // int seq_len = 256;
     // auto launch = &run_fmha_fp16_256_128_sm80;
@@ -224,8 +227,11 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     // int seq_len = 512;
     // auto launch = &run_fmha_dgrad_fp16_512_64_sm80;
 
-    int seq_len = 256;
-    auto launch = &run_fmha_dgrad_fp16_256_64_sm80;
+    // int seq_len = 256;
+    // auto launch = &run_fmha_dgrad_fp16_256_64_sm80;
+
+    int seq_len = 384;
+    auto launch = &run_fmha_dgrad_fp16_384_64_sm80;
 
     // if( max_seq_len <= 128 ) {
     //     seq_len = 128;

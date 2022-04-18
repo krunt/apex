@@ -982,14 +982,19 @@ inline __device__ void dgrad_device_1xN(const Params &params) {
     int STEPS_M = params.max_s / Kernel_traits::Cta_tile_p::M;
     int STEPS_N = params.max_s / Kernel_traits::Cta_tile_p::N;
 
+    // total: 19ms (2048)
+
+    // 30%
     for (int bids = 0; bids < STEPS_N; ++bids) {
         fmha::rematerialize_softmax_1xN<Kernel_traits>(params, bids, STEPS_M);
 
         fmha::compute_reduce_dv_1xN<Kernel_traits>(params, bids, STEPS_M);
     }
 
+    // 13 ms
     for (int bids = 0; bids < STEPS_N; ++bids) {
 
+        // 15% in total
         fmha::rematerialize_softmax_1xN<Kernel_traits>(params, bids, STEPS_M);
 
         fmha::compute_dv_1xN<Kernel_traits>(params, bids, STEPS_M);
