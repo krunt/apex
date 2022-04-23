@@ -45,11 +45,11 @@ void run_fmha_fp16_256_64_sm80(Launch_params<Fused_multihead_attention_fprop_par
 
     int smem_size = fmha::get_dynamic_smem_size<Kernel_traits>(launch_params.params);
 
+    fprintf(stderr, "fwd: smem_size=%d\n", smem_size);
+
     if( smem_size >= 48 * 1024 ) {
         FMHA_CHECK_CUDA(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
     }
-
-    fprintf(stderr, "fwd: smem_size=%d\n", smem_size);
 
     const int sm_count = launch_params.props->multiProcessorCount;
     int ctas_per_sm;

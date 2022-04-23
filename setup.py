@@ -516,10 +516,25 @@ if "--fmha" in sys.argv:
     # Check, if CUDA11 is installed for compute capability 8.0
     cc_flag = []
     _, bare_metal_major, _ = get_cuda_bare_metal_version(CUDA_HOME)
-    if int(bare_metal_major) < 11:
-        raise RuntimeError("--fmha only supported on SM80")
+    #if int(bare_metal_major) < 11:
+        #raise RuntimeError("--fmha only supported on SM80")
+
+    # ampere
+    #cc_flag.append("-gencode")
+    #cc_flag.append("arch=compute_80,code=sm_80")
+
+    # turing
+    #cc_flag.append("-gencode")
+    #cc_flag.append("arch=compute_75,code=sm_75")
+
+    cc_flag.append("-gencode")
+    cc_flag.append("arch=compute_86,code=sm_86")
+
     cc_flag.append("-gencode")
     cc_flag.append("arch=compute_80,code=sm_80")
+
+    cc_flag.append("-gencode")
+    cc_flag.append("arch=compute_75,code=sm_75")
 
     ext_modules.append(
         CUDAExtension(

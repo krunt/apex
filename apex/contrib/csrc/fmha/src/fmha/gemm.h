@@ -159,6 +159,9 @@ struct Fragment_accumulator : public Fragment<float, 8> {
     template< typename Layout_a, typename Layout_b >
     inline __device__ void mma(const Fragment_a<Layout_a> &a,
                                const Fragment_b<Layout_b> &b) {
+#if defined(__CUDA_ARCH__) 
+#if __CUDA_ARCH__ >= 800
+        // sm_80
         asm volatile( \
             "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 \n" \
             "    {%0, %1, %2, %3}, \n" \
@@ -177,6 +180,51 @@ struct Fragment_accumulator : public Fragment<float, 8> {
                     : "+f"(  elt(4)), "+f"(  elt(5)), "+f"(  elt(6)), "+f"(  elt(7))
                     :  "r"(a.reg(0)),  "r"(a.reg(1)),  "r"(a.reg(2)),  "r"(a.reg(3))
                     ,  "r"(b.reg(2)),  "r"(b.reg(3)));
+#elif __CUDA_ARCH__ >= 750
+        // sm_75
+        asm volatile( \
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 \n" \
+                "    {%0, %1, %2, %3}, \n" \
+                "    {%4, %5}, \n" \
+                "    {%6}, \n" \
+                "    {%0, %1, %2, %3}; \n" \
+                        : "+f"(  elt(0)), "+f"(  elt(1)), "+f"(  elt(2)), "+f"(  elt(3))
+                        :  "r"(a.reg(0)),  "r"(a.reg(1))
+                        ,  "r"(b.reg(0)));
+
+        asm volatile( \
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 \n" \
+                "    {%0, %1, %2, %3}, \n" \
+                "    {%4, %5}, \n" \
+                "    {%6}, \n" \
+                "    {%0, %1, %2, %3}; \n" \
+                        : "+f"(  elt(0)), "+f"(  elt(1)), "+f"(  elt(2)), "+f"(  elt(3))
+                        :  "r"(a.reg(2)),  "r"(a.reg(3))
+                        ,  "r"(b.reg(1)));
+
+        asm volatile( \
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 \n" \
+                "    {%0, %1, %2, %3}, \n" \
+                "    {%4, %5}, \n" \
+                "    {%6}, \n" \
+                "    {%0, %1, %2, %3}; \n" \
+                        : "+f"(  elt(4)), "+f"(  elt(5)), "+f"(  elt(6)), "+f"(  elt(7))
+                        :  "r"(a.reg(0)),  "r"(a.reg(1))
+                        ,  "r"(b.reg(2)));
+
+        asm volatile( \
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 \n" \
+                "    {%0, %1, %2, %3}, \n" \
+                "    {%4, %5}, \n" \
+                "    {%6}, \n" \
+                "    {%0, %1, %2, %3}; \n" \
+                        : "+f"(  elt(4)), "+f"(  elt(5)), "+f"(  elt(6)), "+f"(  elt(7))
+                        :  "r"(a.reg(2)),  "r"(a.reg(3))
+                        ,  "r"(b.reg(3)));
+#else
+#error "unsupported architecture"
+#endif
+#endif
     }
 
 };

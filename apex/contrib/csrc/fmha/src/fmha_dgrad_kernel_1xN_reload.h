@@ -993,7 +993,6 @@ inline __device__ void dgrad_device_1xN(const Params &params) {
 
     // 13 ms
     for (int bids = 0; bids < STEPS_N; ++bids) {
-
         // 15% in total
         fmha::rematerialize_softmax_1xN<Kernel_traits>(params, bids, STEPS_M);
 
