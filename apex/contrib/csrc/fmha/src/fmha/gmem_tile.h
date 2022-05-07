@@ -41,7 +41,9 @@ template<
     // The number of columns.
     int COLS,
     // The number of matrics.
-    int NUM_MATS = 3
+    int NUM_MATS = 3,
+
+    int ROW_STRIDE_BYTES = COLS * BITS_PER_ELEMENT / 8
 >
 struct Gmem_tile_qkv {
 
@@ -60,7 +62,8 @@ struct Gmem_tile_qkv {
 
     // Ctor.
     template< typename Params, typename BInfo >
-    inline __device__ Gmem_tile_qkv(const Params &params, const int qkv_offset, const int seql_offset, const BInfo &binfo, const int tidx)
+    inline __device__ Gmem_tile_qkv(const Params &params, const int qkv_offset, const int seql_offset, 
+            int col_offset, const BInfo &binfo, const int tidx)
         : params_qkv_stride_in_bytes_(params.qkv_stride_in_bytes)
         , actual_seqlen(binfo.actual_seqlen)
         , qkv_ptr_(reinterpret_cast<char *>(params.qkv_ptr)) {
@@ -76,10 +79,10 @@ struct Gmem_tile_qkv {
         // The row offset in the batched GEMM. For each seq element, we store QKV in that order.
         int64_t row_offset = (int64_t)row * params.qkv_stride_in_bytes;
         // Add the block index.
-        row_offset += (int64_t)(((binfo.sum_s + seql_offset) * NUM_MATS + qkv_offset) * binfo.h + binfo.bidh) * BYTES_PER_ROW;
+        row_offset += (int64_t)(((binfo.sum_s + seql_offset) * NUM_MATS + qkv_offset) * binfo.h + binfo.bidh) * ROW_STRIDE_BYTES;
 
         // Assemble the final pointer.
-        qkv_ptr_ += row_offset + col * BYTES_PER_LDG;
+        qkv_ptr_ += row_offset + (col + col_offset) * BYTES_PER_LDG;
     }
 
     // Store data to shared memory.
@@ -144,7 +147,8 @@ struct Gmem_tile_qkv {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template< typename Cta_tile >
+template< typename Cta_tile,
+          int ROW_STRIDE_BYTES = 128 >
 struct Gmem_tile_o {
 
     // The mma tile.
@@ -178,7 +182,7 @@ struct Gmem_tile_o {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_o(const Params &params, const int seql_offset, const BInfo &binfo, int tidx)
+    inline __device__ Gmem_tile_o(const Params &params, const int seql_offset, int col_offset, const BInfo &binfo, int tidx)
         : params_o_stride_in_bytes_(params.o_stride_in_bytes)
         , actual_seqlen_(binfo.actual_seqlen)
         , o_ptr_(reinterpret_cast<char *>(params.o_ptr)) {
@@ -192,9 +196,9 @@ struct Gmem_tile_o {
         row_ = row;
 
         // The row offset in the batched GEMM.
-        int64_t row_offset = (int64_t)row * params.o_stride_in_bytes + ((binfo.sum_s + seql_offset) * binfo.h + binfo.bidh) * BYTES_PER_ROW; //binfo.bidx * BYTES_PER_ROW;
+        int64_t row_offset = (int64_t)row * params.o_stride_in_bytes + ((binfo.sum_s + seql_offset) * binfo.h + binfo.bidh) * ROW_STRIDE_BYTES; //binfo.bidx * BYTES_PER_ROW;
         // Assemble the final pointer.
-        o_ptr_ += row_offset + col * BYTES_PER_STG;
+        o_ptr_ += row_offset + (col + col_offset) * BYTES_PER_STG;
 
         // Is that thread active on the last STG?
         if( HAS_INCOMPLETE_STG ) {
@@ -482,6 +486,9 @@ struct Gmem_tile_mma_s : public Base {
 template<
     // The dimensions of the tile computed by the CTA.
     typename Cta_tile,
+
+    int ROW_STRIDE_BYTES = Cta_tile::K * fmha::BITS_PER_ELEMENT_A / 8,
+    
     // The base class.
     typename Base = fmha::Gmem_tile_qkv<Cta_tile, fmha::BITS_PER_ELEMENT_A, Cta_tile::M, Cta_tile::K>
 >
@@ -489,8 +496,8 @@ struct Gmem_tile_dout : public Base {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_dout(const Params &params, int seql_offset, const BInfo &binfo, int tidx)
-        : Base(params, 0, seql_offset, binfo, tidx) {
+    inline __device__ Gmem_tile_dout(const Params &params, int seql_offset, int col_offset, const BInfo &binfo, int tidx)
+        : Base(params, 0, seql_offset, col_offset, binfo, tidx) {
 
         this->qkv_ptr_ = reinterpret_cast<char *>(params.o_ptr);
         this->params_qkv_stride_in_bytes_ = params.o_stride_in_bytes;  // needed for move
@@ -499,22 +506,27 @@ struct Gmem_tile_dout : public Base {
         int col = tidx % Base::THREADS_PER_ROW;
 
         // The row offset in the batched GEMM. For each seq element, we store O in that order.
-        int64_t row_offset = (int64_t)this->row_ * params.o_stride_in_bytes + binfo.bidx * Base::BYTES_PER_ROW;
+        // int64_t row_offset = (int64_t)this->row_ * params.o_stride_in_bytes + binfo.bidx * ROW_STRIDE_BYTES; //Base::BYTES_PER_ROW;
+
+        int64_t row_offset = (int64_t)this->row_ * params.o_stride_in_bytes;
+        row_offset += (int64_t)((binfo.sum_s + seql_offset) * binfo.h + binfo.bidh) * ROW_STRIDE_BYTES;
 
         // Assemble the final pointer.
-        this->qkv_ptr_ += row_offset + col * Base::BYTES_PER_LDG;
+        this->qkv_ptr_ += row_offset + (col + col_offset) * Base::BYTES_PER_LDG;
     }
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template< typename Cta_tile, typename Base = fmha::Gmem_tile_o<Cta_tile> >
+template< typename Cta_tile, 
+    int ROW_STRIDE_BYTES = Cta_tile::N * fmha::BITS_PER_ELEMENT_A / 8,
+    typename Base = fmha::Gmem_tile_o<Cta_tile, ROW_STRIDE_BYTES> >
 struct Gmem_tile_dq : public Base {
 
     // Ctor.
     template<typename Params, typename BInfo>
-    inline __device__ Gmem_tile_dq(const Params &params, const int seql_offset, const BInfo &binfo, int tidx) 
-        : Base(params, seql_offset, binfo, tidx) {
+    inline __device__ Gmem_tile_dq(const Params &params, const int seql_offset, int col_offset, const BInfo &binfo, int tidx) 
+        : Base(params, seql_offset, col_offset, binfo, tidx) {
         this->o_ptr_ = reinterpret_cast<char *>(params.dqkv_ptr);
         this->params_o_stride_in_bytes_ = params.qkv_stride_in_bytes;  // needed for move
 
@@ -522,11 +534,14 @@ struct Gmem_tile_dq : public Base {
         int col = tidx % Base::THREADS_PER_ROW;
 
         // The row offset in the batched GEMM. For each seq element, we store O in that order.
-        int64_t row_offset = (int64_t)this->row_ * params.qkv_stride_in_bytes +
-                             (binfo.sum_s * 3 * binfo.h + binfo.bidh) * Base::BYTES_PER_ROW;
+        // int64_t row_offset = (int64_t)this->row_ * params.qkv_stride_in_bytes +
+        //                      (binfo.sum_s * 3 * binfo.h + binfo.bidh) * ROW_STRIDE_BYTES;
+
+        int64_t row_offset = (int64_t)this->row_ * params.qkv_stride_in_bytes;
+        row_offset += (int64_t)(((binfo.sum_s + seql_offset) * 3 + 0) * binfo.h + binfo.bidh) * ROW_STRIDE_BYTES;
 
         // Assemble the final pointer.
-        this->o_ptr_ += row_offset + col * Base::BYTES_PER_STG;
+        this->o_ptr_ += row_offset + (col + col_offset) * Base::BYTES_PER_STG;
     }
 };
 

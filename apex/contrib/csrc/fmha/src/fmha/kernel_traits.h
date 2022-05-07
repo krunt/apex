@@ -34,8 +34,11 @@ struct FMHA_kernel_traits {
 
     // The CTA description for the 1st GEMM.
     using Cta_tile_p = fmha::Cta_tile_extd<STEP, S, D, WARPS_M, WARPS_N, 1>;
+
+    using Cta_tile_p2 = fmha::Cta_tile_extd<STEP, S, D / 2, WARPS_M, WARPS_N, 1>;
+
     // The CTA description for the 2nd GEMM.
-    using Cta_tile_o = fmha::Cta_tile_extd<STEP, D, S, WARPS_M, 1, WARPS_N>;
+    using Cta_tile_o = fmha::Cta_tile_extd<STEP, D / 2, S, WARPS_M, 1, WARPS_N>;
 
     // Do we use one buffer for K and V.
     enum { SHARE_SMEM_FOR_K_AND_V = (FLAGS & 0x08u) != 0u };
@@ -45,21 +48,28 @@ struct FMHA_kernel_traits {
     // The global memory tile to load Q.
     using Gmem_tile_q = fmha::Gmem_tile_qkv<Cta_tile_p, fmha::BITS_PER_ELEMENT_A, STEP, D>;
 
+    using Gmem_tile_q2 = fmha::Gmem_tile_qkv<Cta_tile_p2, fmha::BITS_PER_ELEMENT_A, STEP, D / 2, 3, D * fmha::BITS_PER_ELEMENT_B / 8>;
+
     // The shared memory tile to swizzle Q.
     using Smem_tile_q = fmha::Smem_tile_a<Cta_tile_p, fmha::Row, Gmem_tile_q::BYTES_PER_LDG, 1>;
 
     // The global memory tile to load K.
     using Gmem_tile_k = fmha::Gmem_tile_qkv<Cta_tile_p, fmha::BITS_PER_ELEMENT_B, S, D>;
+
+    using Gmem_tile_k2 = fmha::Gmem_tile_qkv<Cta_tile_p2, fmha::BITS_PER_ELEMENT_B, S, D / 2, 3, D * fmha::BITS_PER_ELEMENT_B / 8>;
+
     // The shared memory tile to swizzle K.
     using Smem_tile_k = fmha::Smem_tile_b<Cta_tile_p, fmha::Col>;
 
     // The global memory tile to load V.
-    using Gmem_tile_v = fmha::Gmem_tile_qkv<Cta_tile_o, fmha::BITS_PER_ELEMENT_B, S, D>;
+    using Gmem_tile_v = fmha::Gmem_tile_qkv<Cta_tile_o, fmha::BITS_PER_ELEMENT_B, S, D / 2, 3, D * fmha::BITS_PER_ELEMENT_B / 8>;
     // The shared memory tile to swizzle V.
     using Smem_tile_v = fmha::Smem_tile_v<Cta_tile_o>;
 
+    using Gmem_tile_dv = fmha::Gmem_tile_qkv<Cta_tile_o, fmha::BITS_PER_ELEMENT_B, S, D>;
+
     // The global memory tile to store O.
-    using Gmem_tile_o = fmha::Gmem_tile_o<Cta_tile_o>;
+    using Gmem_tile_o = fmha::Gmem_tile_o<Cta_tile_o, D * fmha::BITS_PER_ELEMENT_B / 8>;
     // The shared memory tile for O.
     using Smem_tile_o = fmha::Smem_tile_o<Cta_tile_o>;
 
@@ -70,6 +80,9 @@ struct FMHA_kernel_traits {
     using Smem_tile_st = fmha::Smem_tile_mma_transposed<Cta_tile_p>;
 
     using Gmem_tile_do = fmha::Gmem_tile_dout<Cta_tile_p>;
+
+    using Gmem_tile_do2 = fmha::Gmem_tile_dout<Cta_tile_p2, Cta_tile_p::K * fmha::BITS_PER_ELEMENT_A / 8, 
+        fmha::Gmem_tile_qkv<Cta_tile_p2, fmha::BITS_PER_ELEMENT_A, Cta_tile_p2::M, Cta_tile_p2::K, 1, Cta_tile_p::K * fmha::BITS_PER_ELEMENT_A / 8>>;
 
     // Make sure the number of threads match.
     static_assert((int)Gmem_tile_o::THREADS_PER_ROW == (int)Smem_tile_o::THREADS_PER_ROW, "");

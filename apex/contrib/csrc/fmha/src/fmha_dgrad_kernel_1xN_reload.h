@@ -98,7 +98,7 @@ inline __device__ void rematerialize_softmax_1xN(const Params &params, int bids,
 
     Gemm1 gemm_q_k(smem_, tidx);
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_q gmem_q(params, 0, 0, binfo, tidx);
+    Gmem_tile_q gmem_q(params, 0, 0, 0, binfo, tidx);
 
     // Allocate the global memory tile loader for S.
     Gmem_tile_s gmem_s(params, binfo, tidx);
@@ -106,7 +106,7 @@ inline __device__ void rematerialize_softmax_1xN(const Params &params, int bids,
     fmha::Mask<Cta_tile_p> mask(params, binfo, tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, binfo, tidx);
+    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, 0, binfo, tidx);
 
     // Trigger the loads for K.
     gmem_k.load(gemm_q_k.smem_k);
@@ -229,7 +229,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
 
     static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128);
-    static_assert(Cta_tile_dv::N == 64);
+    static_assert(Cta_tile_dv::N == 64 || Cta_tile_dv::N == 128);
     static_assert(Cta_tile_dv::K == 16);
 
     // The MMA tile for the 1st GEMM.
@@ -261,7 +261,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
     using Smem_tile_o = typename Kernel_traits::Smem_tile_o;
 
     // The global memory tile to store dV.
-    using Gmem_tile_dv = typename Kernel_traits::Gmem_tile_v;
+    using Gmem_tile_dv = typename Kernel_traits::Gmem_tile_dv;
     // The shared memory tile to swizzle dV.
     using Smem_tile_dv = fmha::Smem_tile_mma_epilogue<Cta_tile_dv>;
     static_assert(Smem_tile_dv::NUM_LDS == Gmem_tile_dv::LDGS);
@@ -270,6 +270,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
     using Gmem_tile_s = typename Kernel_traits::Gmem_tile_s;
     using Smem_tile_st = typename Kernel_traits::Smem_tile_st;
     using Gmem_tile_do = typename Kernel_traits::Gmem_tile_do;
+    using Gmem_tile_do2 = typename Kernel_traits::Gmem_tile_do2;
 
     // Shared memory.
     extern __shared__ char smem_[];
@@ -291,14 +292,14 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
     Mask<Cta_tile_p> mask(params, binfo, tidx);
 
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_do gmem_q(params, 0, binfo, tidx);  // treating dout as Q
+    Gmem_tile_do gmem_q(params, 0, 0, binfo, tidx);  // treating dout as Q
     // Allocate the shared memory tile loader for Q.
     Smem_tile_q smem_q(&smem_[0], tidx);
     Smem_tile_qt smem_qt(&smem_[0], tidx);
     Smem_tile_st smem_s(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE], tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 2, bids * Cta_tile_p::N, binfo, tidx);  // treating V as K
+    Gmem_tile_k gmem_k(params, 2, bids * Cta_tile_p::N, 0, binfo, tidx);  // treating V as K
     // Allocate the shared memory tile loader for K.
     Smem_tile_k smem_k(&smem_[Smem_tile_q::BYTES_PER_TILE], tidx);
 
@@ -420,6 +421,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
             }
         }
 
+        // gmem_s.store(softmax.elt_, mask);
         gmem_s.move();
 
         float p_sum[2 * M];
@@ -457,23 +459,29 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     // The description of the CTA tile for the 2nd batched GEMM.
     using Cta_tile_dv =
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
+    using Cta_tile_dv2 =
+        fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K / 2, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
 
     static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128);
-    static_assert(Cta_tile_dv::N == 64);
+    static_assert(Cta_tile_dv::N == 128);
+    static_assert(Cta_tile_dv2::N == 64);
     static_assert(Cta_tile_dv::K == 16);
 
     // The MMA tile for the 1st GEMM.
     using Mma_tile_p = fmha::Hmma_tile<Cta_tile_p>;
     // The MMA tile for the 2nd GEMM.
     using Mma_tile_dv = fmha::Hmma_tile<Cta_tile_dv>;
+    
+    using Mma_tile_dv2 = fmha::Hmma_tile<Cta_tile_dv2>;
 
     // The global memory tile to load Q.
     using Gmem_tile_q = typename Kernel_traits::Gmem_tile_q;
     // The shared memory tile to swizzle Q.
     // using Smem_tile_q = typename Kernel_traits::Smem_tile_q;
-    using Smem_tile_q = fmha::Smem_tile_a<Cta_tile_p, fmha::Row, Gmem_tile_q::BYTES_PER_LDG, 2>;
+    using Smem_tile_q = fmha::Smem_tile_a<Cta_tile_p, fmha::Row, Gmem_tile_q::BYTES_PER_LDG>;
+
     // The shared memory tile to reload Q as fragment b.
-    using Smem_tile_qt = fmha::Smem_tile_b<Cta_tile_dv, fmha::Row, Gmem_tile_q::BYTES_PER_LDG, 2>;
+    using Smem_tile_qt = fmha::Smem_tile_b<Cta_tile_dv2, fmha::Row, Gmem_tile_q::BYTES_PER_LDG>;
 
     // The global memory tile to load K.
     using Gmem_tile_k = typename Kernel_traits::Gmem_tile_k;
@@ -493,13 +501,14 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     // The global memory tile to store dV.
     using Gmem_tile_dv = typename Kernel_traits::Gmem_tile_v;
     // The shared memory tile to swizzle dV.
-    using Smem_tile_dv = fmha::Smem_tile_mma_epilogue<Cta_tile_dv>;
+    using Smem_tile_dv = fmha::Smem_tile_mma_epilogue<Cta_tile_dv2>;
     static_assert(Smem_tile_dv::NUM_LDS == Gmem_tile_dv::LDGS);
     static_assert(Smem_tile_dv::THREADS_PER_ROW == Gmem_tile_dv::THREADS_PER_ROW);
 
     using Gmem_tile_s = typename Kernel_traits::Gmem_tile_s;
     using Smem_tile_st = typename Kernel_traits::Smem_tile_st;
     using Gmem_tile_do = typename Kernel_traits::Gmem_tile_do;
+    using Gmem_tile_do2 = typename Kernel_traits::Gmem_tile_do2;
 
     // Shared memory.
     extern __shared__ char smem_[];
@@ -526,37 +535,53 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     dgrad_osum = &dgrad_osum[(bidb * params.h + bidh) * params.max_s];
 
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_do gmem_q(params, 0, binfo, tidx);  // treating dout as Q
+    Gmem_tile_do gmem_q(params, 0, 0, binfo, tidx);  // treating dout as Q
+
+    Gmem_tile_do2 gmem_qt(params, 0, 0, binfo, tidx);  // treating dout as Q
+    Gmem_tile_do2 gmem2_qt(params, 0, Gmem_tile_do2::BYTES_PER_ROW / Gmem_tile_do2::BYTES_PER_LDG, binfo, tidx);
+
     // Allocate the shared memory tile loader for Q.
     Smem_tile_q smem_q(&smem_[0], tidx);
-    Smem_tile_qt smem_qt(&smem_[0], tidx);
-    Smem_tile_st smem_s(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE], tidx);
+
+    static_assert(2 * Smem_tile_qt::BYTES_PER_TILE == Smem_tile_q::BYTES_PER_TILE);
+
+    Smem_tile_qt smem_qt(&smem_[Smem_tile_q::BYTES_PER_TILE], tidx);
+    Smem_tile_qt smem2_qt(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_qt::BYTES_PER_TILE], tidx);
+
+    Smem_tile_st smem_s(&smem_[2 * Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE], tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 2, bids * Cta_tile_p::N, binfo, tidx);  // treating V as K
+    Gmem_tile_k gmem_k(params, 2, bids * Cta_tile_p::N, 0, binfo, tidx);  // treating V as K
     // Allocate the shared memory tile loader for K.
-    Smem_tile_k smem_k(&smem_[Smem_tile_q::BYTES_PER_TILE], tidx);
+    Smem_tile_k smem_k(&smem_[2 * Smem_tile_q::BYTES_PER_TILE], tidx);
 
     // Trigger the loads for Q.
     gmem_q.load(smem_q);
     // Trigger the loads for K.
     gmem_k.load(smem_k);
 
+    gmem_qt.load(smem_qt);
+    gmem2_qt.load(smem2_qt);
+
     // Commit the data for Q and K to shared memory.
     gmem_q.commit(smem_q);
     gmem_k.commit(smem_k);
 
+    gmem_qt.commit(smem_qt);
+    gmem2_qt.commit(smem2_qt);
+
     // Make sure the data is in shared memory.
     __syncthreads();
+
+    typename Smem_tile_qt::Fragment frag_qt[2][Mma_tile_dv2::MMAS_N];
+    static_assert(Smem_tile_qt::Fragment::NUM_REGS == 4);
+    static_assert(Mma_tile_dv2::MMAS_K == 1);
+    smem_qt.load(frag_qt[0], 0);
+    smem2_qt.load(frag_qt[1], 0);
 
     // Load the fragments for Q.
     typename Smem_tile_q::Fragment frag_q[2][Mma_tile_p::MMAS_M];
     smem_q.load(frag_q[0], 0);
-
-    typename Smem_tile_qt::Fragment frag_qt[2][Mma_tile_dv::MMAS_N];
-    static_assert(Smem_tile_qt::Fragment::NUM_REGS == 4);
-    static_assert(Mma_tile_dv::MMAS_K == 1);
-    smem_qt.load(frag_qt[0], 0);
 
     // Load the fragments for K. We keep the data in registers during the entire kernel.
     typename Smem_tile_k::Fragment frag_k[2][Mma_tile_p::MMAS_N];
@@ -571,15 +596,16 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     Softmax softmax(
         params,
         params.bwd_scale_bmm1,
-        &smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_st::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE], bidb, tidx);
+        &smem_[2 * Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE + Smem_tile_st::BYTES_PER_TILE], bidb, tidx);
 
     enum { THREADS_PER_ROW = 32 };
     enum { M = Mma_tile_p::MMAS_M };
     enum { N = Mma_tile_p::MMAS_N };
 
     // Declare the accumulators for the 2nd gemm.
-    fmha::Fragment_accumulator acc_dv[Mma_tile_dv::MMAS_M][Mma_tile_dv::MMAS_N];
-    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dv::WARPS_K>::apply(acc_dv);
+    fmha::Fragment_accumulator acc_dv[2][Mma_tile_dv2::MMAS_M][Mma_tile_dv2::MMAS_N];
+    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dv2::WARPS_K>::apply(acc_dv[0]);
+    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dv2::WARPS_K>::apply(acc_dv[1]);
 
     // Load over the entire sequence length.
     for( int l = 0; l < steps; l++ ) {
@@ -615,7 +641,7 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
         }
         // Trigger the load for the next Q values. We're using double buffering, so reading qt is safe
         if( l < steps - 1) {
-            smem_q.move_to_next_write_buffer();
+            // smem_q.move_to_next_write_buffer();
             gmem_q.move();
             gmem_q.load(smem_q);
         }
@@ -687,27 +713,37 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
         gmem_s.store(softmax.elt_, mask);
         gmem_s.move();
 
+        static_assert(Mma_tile_dv::MMAS_K == 1);
+
         #pragma unroll
         for( int ki = 1; ki < Mma_tile_dv::MMAS_K; ++ki ) {
-            // Trigger the load from shared memory for the next series of Q values.
-            smem_qt.load(frag_qt[ki & 1], ki);
             // Do the math for the values already in registers.
-            fmha::gemm(acc_dv, frag_s[(ki - 1)], frag_qt[(ki - 1) & 1]);
+            fmha::gemm(acc_dv[0], frag_s[(ki - 1)], frag_qt[0]);
+            fmha::gemm(acc_dv[1], frag_s[(ki - 1)], frag_qt[1]);
+
+            // Trigger the load from shared memory for the next series of Q values.
+            smem_qt.load(frag_qt[0], ki);
+            smem2_qt.load(frag_qt[1], ki);
         }
 
         // Do the final stage of math.
         {
             int ki = Mma_tile_dv::MMAS_K;
-            fmha::gemm(acc_dv, frag_s[(ki - 1)], frag_qt[(ki - 1) & 1]);
+            fmha::gemm(acc_dv[0], frag_s[(ki - 1)], frag_qt[0]);
+            fmha::gemm(acc_dv[1], frag_s[(ki - 1)], frag_qt[1]);
         }
         // Commit the values for Q into shared memory.
         if(l < steps - 1) {
             gmem_q.commit(smem_q);
-        }
 
-        // Make sure we are reading from the correct buffer.
-        smem_q.move_to_next_read_buffer();
-        smem_qt.move_to_next_read_buffer();
+            gmem_qt.move();
+            gmem_qt.load(smem_qt);
+            gmem_qt.commit(smem_qt);
+
+            gmem2_qt.move();
+            gmem2_qt.load(smem2_qt);
+            gmem2_qt.commit(smem2_qt);
+        }
 
         // Make sure the data is in shared memory.
         __syncthreads();
@@ -716,22 +752,26 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
         smem_q.load(frag_q[0], 0);
         smem_k.load(frag_k[0], 0);
         smem_qt.load(frag_qt[0], 0);
+        smem2_qt.load(frag_qt[1], 0);
 
     }  // Outer loop over the sequence length.
 
+    for (int partIdx = 0; partIdx < 2; ++partIdx) {
     // Epilogue swizzle for dV
-    Smem_tile_dv smem_dv(&smem_[Kernel_traits::Smem_tile_q::BYTES_PER_TILE], tidx);
-    smem_dv.store(acc_dv);
+        Smem_tile_dv smem_dv(&smem_[2 * Kernel_traits::Smem_tile_q::BYTES_PER_TILE], tidx);
+        smem_dv.store(acc_dv[partIdx]);
 
-    __syncthreads();
-    uint4 dv_out[Smem_tile_dv::NUM_LDS];
-    smem_dv.load(dv_out);
-    Qkv_params dv_params;
-    dv_params.qkv_ptr = params.dqkv_ptr;
-    dv_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
-    dv_params.h = params.h;
-    Gmem_tile_dv gmem_dv(dv_params, 2, bids * Cta_tile_p::N, binfo, tidx);
-    gmem_dv.store(dv_out);
+        __syncthreads();
+        uint4 dv_out[Smem_tile_dv::NUM_LDS];
+        smem_dv.load(dv_out);
+        Qkv_params dv_params;
+        dv_params.qkv_ptr = params.dqkv_ptr;
+        dv_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
+        dv_params.h = params.h;
+        Gmem_tile_dv gmem_dv(dv_params, 2, bids * Cta_tile_p::N, 
+            partIdx * Gmem_tile_dv::BYTES_PER_ROW / Gmem_tile_dv::BYTES_PER_LDG, binfo, tidx);
+        gmem_dv.store(dv_out);
+    }
 }
 
 template<typename Kernel_traits, typename Params>
@@ -743,8 +783,11 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     // The description of the CTA tile for the 2nd batched GEMM.
     using Cta_tile_dk =
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
+    using Cta_tile_dk2 =
+        fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K / 2, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
     static_assert(Cta_tile_dk::M == 512 || Cta_tile_dk::M == 384 || Cta_tile_dk::M == 256 || Cta_tile_dk::M == 128);
-    static_assert(Cta_tile_dk::N == 64);
+    static_assert(Cta_tile_dk::N == 128);
+    static_assert(Cta_tile_dk2::N == 64);
     static_assert(Cta_tile_dk::K == 16);
 
     // The MMA tile for the 1st GEMM.
@@ -752,16 +795,20 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     using Mma_tile_o = fmha::Hmma_tile<Cta_tile_o>;
     // The MMA tile for the 2nd GEMM.
     using Mma_tile_dk = fmha::Hmma_tile<Cta_tile_dk>;
+    using Mma_tile_dk2 = fmha::Hmma_tile<Cta_tile_dk2>;
 
     // The global memory tile to load Q.
     using Gmem_tile_q = typename Kernel_traits::Gmem_tile_q;
+    using Gmem_tile_q2 = typename Kernel_traits::Gmem_tile_q2;
+
     // The shared memory tile to swizzle Q.
     using Smem_tile_q = typename Kernel_traits::Smem_tile_q;
 
     // The global memory tile to load K.
     using Gmem_tile_k = typename Kernel_traits::Gmem_tile_v;
     // The shared memory tile to swizzle K.
-    using Smem_tile_k = typename Kernel_traits::Smem_tile_v;  // K is used like V in fprop
+    using Smem_tile_k = typename Kernel_traits::Smem_tile_k;
+    using Smem_tile_k2 = typename Kernel_traits::Smem_tile_v;  // K is used like V in fprop
 
     // The global memory tile to load V.
     using Gmem_tile_v = typename Kernel_traits::Gmem_tile_v;
@@ -777,12 +824,12 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     // The global memory tile to store dK.
     using Gmem_tile_dk = typename Kernel_traits::Gmem_tile_v;
     // The shared memory tile to swizzle dK.
-    using Smem_tile_dk = fmha::Smem_tile_mma_epilogue<Cta_tile_dk>;
+    using Smem_tile_dk = fmha::Smem_tile_mma_epilogue<Cta_tile_dk2>;
     static_assert(Smem_tile_dk::NUM_LDS == Gmem_tile_dk::LDGS);
     static_assert(Smem_tile_dk::THREADS_PER_ROW == Gmem_tile_dk::THREADS_PER_ROW);
 
     // The shared memory tile to reload Q transposed.
-    using Smem_tile_qt = fmha::Smem_tile_b<Cta_tile_dk, fmha::Row, Gmem_tile_q::BYTES_PER_LDG, 1>;
+    using Smem_tile_qt = fmha::Smem_tile_b<Cta_tile_dk2, fmha::Row, Gmem_tile_q::BYTES_PER_LDG, 1>;
 
     using Gmem_tile_s = typename Kernel_traits::Gmem_tile_s;
 
@@ -809,27 +856,42 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
 
     Mask<Cta_tile_p> mask(params, binfo, tidx);
 
+    static_assert(Smem_tile_q::BYTES_PER_TILE == 2 * Smem_tile_qt::BYTES_PER_TILE);
+
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_q gmem_q(params, 0, 0, binfo, tidx);
+    Gmem_tile_q2 gmem_qt(params, 0, 0, 0, binfo, tidx);
+    Gmem_tile_q2 gmem2_qt(params, 0, 0, Gmem_tile_q2::BYTES_PER_ROW / Gmem_tile_q2::BYTES_PER_LDG, binfo, tidx);
+
     // Allocate the shared memory tile loader for Q.
-    Smem_tile_q smem_q(&smem_[0], tidx);
     Smem_tile_qt smem_qt(&smem_[0], tidx);
+    Smem_tile_qt smem2_qt(&smem_[Smem_tile_qt::BYTES_PER_TILE], tidx);
+    
     Smem_tile_st smem_s(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE + Smem_tile_o::BYTES_PER_TILE], tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, binfo, tidx);
+    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, 0, binfo, tidx);
+    Gmem_tile_k gmem2_k(params, 1, bids * Cta_tile_p::N, Gmem_tile_k::BYTES_PER_ROW / Gmem_tile_k::BYTES_PER_LDG, binfo, tidx);
+
+    static_assert(Smem_tile_k::BYTES_PER_TILE == 2 * Smem_tile_k2::BYTES_PER_TILE);
+
     // Allocate the shared memory tile loader for K.
-    Smem_tile_k smem_k(&smem_[Smem_tile_q::BYTES_PER_TILE], tidx);
+    Smem_tile_k2 smem_k(&smem_[Smem_tile_q::BYTES_PER_TILE], tidx);
+    Smem_tile_k2 smem2_k(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_k2::BYTES_PER_TILE], tidx);
 
     // Allocate the global memory tile loader for O.
-    Gmem_tile_o gmem_o(params, 0, binfo, tidx);
+    Gmem_tile_o gmem_o(params, 0, 0, binfo, tidx);
+    Gmem_tile_o gmem2_o(params, 0, Gmem_tile_o::BYTES_PER_ROW / Gmem_tile_o::BYTES_PER_STG, binfo, tidx);
+    
     // Allocate the shared memory tile loader for O. We use the same as K so be careful!!!
     Smem_tile_o smem_o(&smem_[Smem_tile_q::BYTES_PER_TILE + Smem_tile_k::BYTES_PER_TILE], tidx);
 
     // Trigger the loads for Q.
-    gmem_q.load(smem_q);
+    gmem_qt.load(smem_qt);
+    gmem2_qt.load(smem2_qt);
+
     // Trigger the loads for K.
     gmem_k.load(smem_k);
+    gmem2_k.load(smem2_k);
 
     Gmem_tile_s gmem_s(params, binfo, tidx);
     // Load dP
@@ -838,24 +900,31 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     gmem_s.move();
 
     // Commit the data for Q and K to shared memory.
-    gmem_q.commit(smem_q);
+    gmem_qt.commit(smem_qt);
+    gmem2_qt.commit(smem2_qt);
+
     gmem_k.commit(smem_k);
+    gmem2_k.commit(smem2_k);
 
     // Make sure the data is in shared memory.
     __syncthreads();
 
-    typename Smem_tile_qt::Fragment frag_qt[2][Mma_tile_dk::MMAS_N];
+    typename Smem_tile_qt::Fragment frag_qt[2][Mma_tile_dk2::MMAS_N];
     smem_qt.load(frag_qt[0], 0);
+    smem2_qt.load(frag_qt[1], 0);
+
     typename Smem_tile_k::Fragment frag_k[2][Mma_tile_o::MMAS_N];
     smem_k.load(frag_k[0], 0);
+    smem2_k.load(frag_k[1], 0);
 
     enum { BITS_PER_ELT_S = sizeof(fmha::A_type) * 8 };
 
     enum { THREADS_PER_ROW = 32 };
 
     // Declare the accumulators for the 2nd gemm.
-    fmha::Fragment_accumulator acc_dk[Mma_tile_dk::MMAS_M][Mma_tile_dk::MMAS_N];
-    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dk::WARPS_K>::apply(acc_dk);
+    fmha::Fragment_accumulator acc_dk[2][Mma_tile_dk2::MMAS_M][Mma_tile_dk2::MMAS_N];
+    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dk2::WARPS_K>::apply(acc_dk[0]);
+    fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_dk2::WARPS_K>::apply(acc_dk[1]);
 
     // Load over the entire sequence length.
     for( int l=0;l<steps;l++) {
@@ -878,22 +947,27 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
         }
 
         // Declare the accumulators for the 1st gemm.
-        fmha::Fragment_accumulator acc_o[Mma_tile_o::MMAS_M][Mma_tile_o::MMAS_N];
-        fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_o::WARPS_K>::apply(acc_o);
+        fmha::Fragment_accumulator acc_o[2][Mma_tile_o::MMAS_M][Mma_tile_o::MMAS_N];
+        fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_o::WARPS_K>::apply(acc_o[0]);
+        fmha::Clear_accumulator<fmha::Accumulator_type, Cta_tile_o::WARPS_K>::apply(acc_o[1]);
 
         // Do this part of O = P^T * V^T. dQ = dP x dK
         #pragma unroll
         for( int ki = 1; ki < Mma_tile_o::MMAS_K; ++ki ) {
-            // Trigger the load from shared memory for the next series of Q values.
-            smem_k.load(frag_k[ki & 1], ki);
             // Do the math for the values already in registers.
-            fmha::gemm(acc_o, frag_p[ki - 1], frag_k[(ki - 1) & 1]);
+            fmha::gemm(acc_o[0], frag_p[ki - 1], frag_k[0]);
+            fmha::gemm(acc_o[1], frag_p[ki - 1], frag_k[1]);
+
+            // Trigger the load from shared memory for the next series of Q values.
+            smem_k.load(frag_k[0], ki);
+            smem2_k.load(frag_k[1], ki);
         }
 
         // Do the final stage of math.
         {
             int ki = Mma_tile_o::MMAS_K;
-            fmha::gemm(acc_o, frag_p[ki - 1], frag_k[(ki - 1) & 1]);
+            fmha::gemm(acc_o[0], frag_p[ki - 1], frag_k[0]);
+            fmha::gemm(acc_o[1], frag_p[ki - 1], frag_k[1]);
         }
 
         // Store dP to smem for transpose
@@ -902,16 +976,17 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
             // Load next part of S
             gmem_s.load(s_regs, mask);
             gmem_s.move();
-            smem_q.move_to_next_write_buffer();
-            gmem_q.move();
-            gmem_q.load(smem_q);
+
+            // smem_q.move_to_next_write_buffer();
+            // gmem_q.move();
+            // gmem_q.load(smem_q);
         }
         // Loop over MMAS_M.
         #pragma unroll
         for( int ii = 0; ii < Gmem_tile_o::LOOPS; ++ii ) {
 
             // Swizzle the elements and do the final reduction.
-            smem_o.store(acc_o, ii);
+            smem_o.store(acc_o[0], ii);
 
             // Make sure the data is in shared memory.
             __syncthreads();
@@ -927,31 +1002,60 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
 
             // Output the values.
             gmem_o.store_add(out, ii);
+
+                        // Swizzle the elements and do the final reduction.
+            smem_o.store(acc_o[1], ii);
+
+            // Make sure the data is in shared memory.
+            __syncthreads();
+
+            smem_o.load(out);
+
+            // Make sure the data was read from shared memory.
+            if( ii < Gmem_tile_o::LOOPS - 1 ) {
+                __syncthreads();
+            }
+
+            // Output the values.
+            gmem2_o.store_add(out, ii);
         }
 
         // Move to the next part of the output.
         gmem_o.move();
+        gmem2_o.move();
 
         typename Smem_tile_st::Fragment frag_s[Mma_tile_dk::MMAS_K][Mma_tile_dk::MMAS_M];
         smem_s.load(frag_s);
 
         #pragma unroll
         for( int ki = 1; ki < Mma_tile_dk::MMAS_K; ++ki ) {
-            // Trigger the load from shared memory for the next series of Q values.
-            smem_qt.load(frag_qt[ki & 1], ki);
             // Do the math for the values already in registers.
-            fmha::gemm(acc_dk, frag_s[(ki - 1)], frag_qt[(ki - 1) & 1]);
+            fmha::gemm(acc_dk[0], frag_s[(ki - 1)], frag_qt[0]);
+            fmha::gemm(acc_dk[1], frag_s[(ki - 1)], frag_qt[1]);
+
+            // Trigger the load from shared memory for the next series of Q values.
+            smem_qt.load(frag_qt[0], ki);
+            smem2_qt.load(frag_qt[1], ki);
         }
 
         // Do the final stage of math.
         {
             int ki = Mma_tile_dk::MMAS_K;
-            fmha::gemm(acc_dk, frag_s[(ki - 1)], frag_qt[(ki - 1) & 1]);
+            fmha::gemm(acc_dk[0], frag_s[(ki - 1)], frag_qt[0]);
+            fmha::gemm(acc_dk[1], frag_s[(ki - 1)], frag_qt[1]);
         }
 
         // Commit the values for Q into shared memory.
         if( l < steps - 1) {
-            gmem_q.commit(smem_q);
+            // gmem_q.commit(smem_q);
+
+            gmem_qt.move();
+            gmem_qt.load(smem_qt);
+            gmem_qt.commit(smem_qt);
+
+            gmem2_qt.move();
+            gmem2_qt.load(smem2_qt);
+            gmem2_qt.commit(smem2_qt);
         }
 
         // Make sure the data is in shared memory.
@@ -959,22 +1063,28 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
 
         // Trigger the loads for the values of Q for the next iteration.
         smem_qt.load(frag_qt[0], 0);
+        smem2_qt.load(frag_qt[1], 0);
         smem_k.load(frag_k[0], 0);
+        smem2_k.load(frag_k[1], 0);
 
     }  // Outer loop over the sequence length.
 
-    // Epilogue swizzle for dK
-    Smem_tile_dk smem_dk(&smem_[0], tidx);
-    smem_dk.store(acc_dk);
-    __syncthreads();
-    uint4 dk_out[Smem_tile_dk::NUM_LDS];
-    smem_dk.load(dk_out);
-    Qkv_params dk_params;
-    dk_params.qkv_ptr = params.dqkv_ptr;
-    dk_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
-    dk_params.h = params.h;
-    Gmem_tile_dk gmem_dk(dk_params, 1, bids * Cta_tile_p::N, binfo, tidx);
-    gmem_dk.store(dk_out);
+    for (int partIdx = 0; partIdx < 2; ++partIdx) {
+        // Epilogue swizzle for dK
+        Smem_tile_dk smem_dk(&smem_[0], tidx);
+        smem_dk.store(acc_dk[partIdx]);
+        __syncthreads();
+        uint4 dk_out[Smem_tile_dk::NUM_LDS];  
+        
+        smem_dk.load(dk_out);
+        Qkv_params dk_params;
+        dk_params.qkv_ptr = params.dqkv_ptr;
+        dk_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
+        dk_params.h = params.h;
+        Gmem_tile_dk gmem_dk(dk_params, 1, bids * Cta_tile_p::N, 
+            partIdx * Gmem_tile_dk::BYTES_PER_ROW / Gmem_tile_dk::BYTES_PER_LDG, binfo, tidx);
+        gmem_dk.store(dk_out);
+    }
 }
 
 template<typename Kernel_traits, typename Params>

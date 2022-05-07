@@ -685,8 +685,7 @@ struct Smem_tile_b< Cta_tile, Col, BYTES_PER_STS, BUFFERS_PER_TILE >
     inline __device__ Smem_tile_b(void *smem, int tidx) : Base(smem, tidx) {
     }
 };
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
+ ////////////////////////////
 
 template<  int N >
 struct Rows_per_xor_pattern_row_b : public Rows_per_xor_pattern_b< N> {
@@ -943,7 +942,8 @@ struct Smem_tile_v : public fmha::Smem_tile_without_skews<Cta_tile, Cta_tile::K,
             if( Mma_tile::MMAS_N == 4 ) {
                 this->smem_read_offset_ ^= BYTES_PER_LDS * (ni % 2 == 0 ? 2 : 6);
             } else {
-                // assert(false);  // Not implemented!
+                assert(false);  // Not implemented!
+                // this->smem_read_offset_ ^= BYTES_PER_LDS * (ni % 2 == 0 ? 2 : 6);
             }
         }
     }
@@ -996,7 +996,7 @@ struct Smem_tile_o {
     // Is the thread active for the last LDS of the series?
     int is_active_for_last_lds_;
 
-    // static_assert(BYTES_PER_ROW == 64 * 4 * Cta_tile::WARPS_K);
+    static_assert(BYTES_PER_ROW == 64 * 4 * Cta_tile::WARPS_K);
     static_assert(LOOPS == 1 || LOOPS == (int)Mma_tile::MMAS_M, "");
 
     // Ctor.

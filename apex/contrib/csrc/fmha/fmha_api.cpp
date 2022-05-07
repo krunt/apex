@@ -114,14 +114,14 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     // int seq_len = 512;
     // auto launch = &run_fmha_fp16_512_64_sm80;
 
-    int seq_len = 384;
-    auto launch = &run_fmha_fp16_384_64_sm80;
+    // int seq_len = 384;
+    // auto launch = &run_fmha_fp16_384_64_sm80;
 
     // int seq_len = 256;
     // auto launch = &run_fmha_fp16_256_64_sm80;
 
-    // int seq_len = 256;
-    // auto launch = &run_fmha_fp16_256_128_sm80;
+    int seq_len = 256;
+    auto launch = &run_fmha_fp16_256_128_sm80;
 
     // if( max_seq_len <= 128 ) {
     //     seq_len = 128;
@@ -213,6 +213,7 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     return { ctx, cmaxs, csums };
 }
 
+#if 1
 std::vector<at::Tensor>
 mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
         const at::Tensor &qkv,   // total x num_heads x 3 x head_size, total := \sum_{i=0}^{b} s_i
@@ -230,11 +231,11 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     // int seq_len = 512;
     // auto launch = &run_fmha_dgrad_fp16_512_64_sm80;
 
-    // int seq_len = 256;
-    // auto launch = &run_fmha_dgrad_fp16_256_64_sm80;
+    int seq_len = 256;
+    auto launch = &run_fmha_dgrad_fp16_256_128_sm80;
 
-    int seq_len = 384;
-    auto launch = &run_fmha_dgrad_fp16_384_64_sm80;
+    // int seq_len = 384;
+    // auto launch = &run_fmha_dgrad_fp16_384_64_sm80;
 
     // if( max_seq_len <= 128 ) {
     //     seq_len = 128;
@@ -276,7 +277,7 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     const int num_heads = sizes[H_DIM];
     const int head_size = sizes[D_DIM];
     TORCH_CHECK(batch_size > 0);
-    TORCH_CHECK(head_size == 64);
+    TORCH_CHECK(head_size == 64 || head_size == 128);
 
     // auto dqkv = torch::empty_like(qkv);
     auto dqkv = torch::zeros_like(qkv);
@@ -318,8 +319,9 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
     params.dqkv_ptr = dqkv.data_ptr();
 
     launch(params, stream);
-    return { dqkv };
+    return { dqkv, dgrad_osums, softmax };
 }
+#endif
 
 #if 0
 std::vector<at::Tensor> mha_bwd_nl(const at::Tensor &dout,        // total x num_heads, x head_size

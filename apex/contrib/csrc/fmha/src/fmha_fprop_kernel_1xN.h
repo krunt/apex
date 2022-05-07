@@ -255,9 +255,11 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
 
     Gemm1 gemm_q_k(smem_, tidx);
     // Allocate the global memory tile loader for Q.
-    Gmem_tile_q gmem_q(params, 0, 0, binfo, tidx);
+    Gmem_tile_q gmem_q(params, 0, 0, 0, binfo, tidx);
     // Allocate the global memory tile loader for O.
-    Gmem_tile_o gmem_o(params, 0, binfo, tidx);
+    Gmem_tile_o gmem_o(params, 0, 0, binfo, tidx);
+    Gmem_tile_o gmem2_o(params, 0, Gmem_tile_o::BYTES_PER_ROW / Gmem_tile_o::BYTES_PER_STG, binfo, tidx);
+
     // Allocate the global memory tile loader for S.
     Gmem_tile_s gmem_s(params, binfo, tidx);
     // Wind gmem tiles to the correct position.
@@ -270,9 +272,11 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     fmha::Mask<Cta_tile_p> mask(params, binfo, tidx);
 
     // Allocate the global memory tile loader for K.
-    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, binfo, tidx);
+    Gmem_tile_k gmem_k(params, 1, bids * Cta_tile_p::N, 0, binfo, tidx);
     // Allocate the global memory tile loader for V.
-    Gmem_tile_v gmem_v(params, 2, bids * Cta_tile_p::N, binfo, tidx);
+    Gmem_tile_v gmem_v(params, 2, bids * Cta_tile_p::N, 0, binfo, tidx);
+    Gmem_tile_v gmem2_v(params, 2, bids * Cta_tile_p::N, Gmem_tile_v::BYTES_PER_ROW / Gmem_tile_v::BYTES_PER_LDG, binfo, tidx);
+
     // The base pointer of smem_v;
     char *smem_v_ = &smem_[Gemm1::SMEM_OFFSET_V];
     
@@ -316,6 +320,17 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     #pragma unroll
     for( int ki = 0; ki < Mma_tile_o::MMAS_K; ++ki ) {
         smem_v.load(frag_v[ki], ki);
+    }
+
+    gmem2_v.load(smem_v);
+    gmem2_v.commit(smem_v);
+
+    __syncthreads();
+
+    typename Smem_tile_v::Fragment frag2_v[Mma_tile_o::MMAS_K][Mma_tile_o::MMAS_N];
+    #pragma unroll
+    for( int ki = 0; ki < Mma_tile_o::MMAS_K; ++ki ) {
+        smem_v.load(frag2_v[ki], ki);
     }
 
     // Commit the data for V to shared memory if it has not been done already.
@@ -436,27 +451,30 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
             gmem_q.commit(gemm_q_k.smem_q);
         }
 
-        #pragma unroll
-        for( int ki = 0; ki < Mma_tile_o::MMAS_K; ki++ ) {
-            #pragma unroll
-            for( int mi = 0; mi < Mma_tile_o::MMAS_M; mi++ ) {
-                #pragma unroll
-                for( int ii = 0; ii < Frag_p::NUM_REGS; ii++ ) {
-                    //"Apply" the dropout.
-                    frag_p[ki][mi].reg(ii) = fmha::hmul2(frag_p[ki][mi].reg(ii), params.scale_dropout);
-                    frag_p[ki][mi].reg(ii) = fmha::hrelu2(frag_p[ki][mi].reg(ii));
-                }
-            }
-        }
+        // #pragma unroll
+        // for( int ki = 0; ki < Mma_tile_o::MMAS_K; ki++ ) {
+        //     #pragma unroll
+        //     for( int mi = 0; mi < Mma_tile_o::MMAS_M; mi++ ) {
+        //         #pragma unroll
+        //         for( int ii = 0; ii < Frag_p::NUM_REGS; ii++ ) {
+        //             //"Apply" the dropout.
+        //             frag_p[ki][mi].reg(ii) = fmha::hmul2(frag_p[ki][mi].reg(ii), params.scale_dropout);
+        //             frag_p[ki][mi].reg(ii) = fmha::hrelu2(frag_p[ki][mi].reg(ii));
+        //         }
+        //     }
+        // }
 
         // Declare the accumulators for the 1st gemm.
         fmha::Fragment_accumulator acc_o[Mma_tile_o::MMAS_M][Mma_tile_o::MMAS_N];
         fmha::Clear_accumulator<typename fmha::Accumulator_type, Cta_tile_o::WARPS_K>::apply(acc_o);
+        fmha::Fragment_accumulator acc2_o[Mma_tile_o::MMAS_M][Mma_tile_o::MMAS_N];
+        fmha::Clear_accumulator<typename fmha::Accumulator_type, Cta_tile_o::WARPS_K>::apply(acc2_o);
 
         // Do this part of O = P^T * V^T.
         #pragma unroll
         for( int ki = 0; ki < Mma_tile_o::MMAS_K; ++ki ) {
             fmha::gemm(acc_o, frag_p[ki], frag_v[ki]);
+            fmha::gemm(acc2_o, frag_p[ki], frag2_v[ki]);
         }
 
         // Loop over MMAS_M.
@@ -471,8 +489,17 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
 
         gmem_o.store_add(out, 0, smem_cur_sums, smem_cur_maxs, smem_old_sums_p, smem_old_maxs_p);
 
+        smem_o.store(acc2_o, 0);
+
+        __syncthreads();
+
+        smem_o.load(out);
+
+        gmem2_o.store_add(out, 0, smem_cur_sums, smem_cur_maxs, smem_old_sums_p, smem_old_maxs_p);
+
         // Move to the next part of the output.
         gmem_o.move();
+        gmem2_o.move();
         gemm_q_k.reload_k();
 
         // Commit the values for Q into shared memory.
