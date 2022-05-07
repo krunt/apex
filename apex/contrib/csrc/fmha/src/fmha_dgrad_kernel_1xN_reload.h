@@ -816,8 +816,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     using Smem_tile_v = typename Kernel_traits::Smem_tile_v;
 
     // The global memory tile to store O.
-    // using Gmem_tile_o = typename Kernel_traits::Gmem_tile_o;
-    using Gmem_tile_o = fmha::Gmem_tile_dq<Cta_tile_o>;
+    using Gmem_tile_o = fmha::Gmem_tile_dq<Cta_tile_o, Cta_tile_dk::N * fmha::BITS_PER_ELEMENT_A / 8>;
     // The shared memory tile to swizzle O.
     using Smem_tile_o = typename Kernel_traits::Smem_tile_o;
 
@@ -1003,7 +1002,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
             // Output the values.
             gmem_o.store_add(out, ii);
 
-                        // Swizzle the elements and do the final reduction.
+            // Swizzle the elements and do the final reduction.
             smem_o.store(acc_o[1], ii);
 
             // Make sure the data is in shared memory.
