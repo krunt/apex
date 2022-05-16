@@ -228,7 +228,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
     using Cta_tile_dv =
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
 
-    static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128);
+    static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128 || Cta_tile_dv::M == 64);
     static_assert(Cta_tile_dv::N == 64 || Cta_tile_dv::N == 128);
     static_assert(Cta_tile_dv::K == 16);
 
@@ -462,7 +462,7 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     using Cta_tile_dv2 =
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K / 2, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
 
-    static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128);
+    static_assert(Cta_tile_dv::M == 512 || Cta_tile_dv::M == 384 || Cta_tile_dv::M == 256 || Cta_tile_dv::M == 128 || Cta_tile_dv::M == 64);
     static_assert(Cta_tile_dv::N == 128);
     static_assert(Cta_tile_dv2::N == 64);
     static_assert(Cta_tile_dv::K == 16);
@@ -785,7 +785,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
     using Cta_tile_dk2 =
         fmha::Cta_tile_extd<Cta_tile_p::N, Cta_tile_p::K / 2, Cta_tile_p::M, Cta_tile_p::WARPS_N, 1, Cta_tile_p::WARPS_M>;
-    static_assert(Cta_tile_dk::M == 512 || Cta_tile_dk::M == 384 || Cta_tile_dk::M == 256 || Cta_tile_dk::M == 128);
+    static_assert(Cta_tile_dk::M == 512 || Cta_tile_dk::M == 384 || Cta_tile_dk::M == 256 || Cta_tile_dk::M == 128 || Cta_tile_dk::M == 64);
     static_assert(Cta_tile_dk::N == 128);
     static_assert(Cta_tile_dk2::N == 64);
     static_assert(Cta_tile_dk::K == 16);
