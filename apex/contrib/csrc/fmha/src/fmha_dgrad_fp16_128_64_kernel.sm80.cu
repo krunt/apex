@@ -28,11 +28,11 @@
 #include "fmha.h"
 #include "fmha_dgrad_kernel_1xN_reload.h"
 
-using Kernel_traits = FMHA_kernel_traits<128, 64, 16, 1, 4, 0x08u>;
+// using Kernel_traits = FMHA_kernel_traits< 256, 64, 16, 1, 4, 0x08u>;
+using Kernel_traits = FMHA_kernel_traits<128, 64, 16, 1, 4, 0x08u>; //0x08u>;
 
 extern "C" __global__ void fmha_dgrad_fp16_128_64_sm80_kernel(Fused_multihead_attention_fprop_params params) {
-    fmha::compute_dv_1xN<Kernel_traits>(params);
-    fmha::compute_dq_dk_1xN<Kernel_traits>(params);
+    fmha::dgrad_device_1xN<Kernel_traits>(params);
 }
 
 void run_fmha_dgrad_fp16_128_64_sm80(const Fused_multihead_attention_fprop_params &params, cudaStream_t stream) {
@@ -47,9 +47,17 @@ void run_fmha_dgrad_fp16_128_64_sm80(const Fused_multihead_attention_fprop_param
     static_assert(smem_size_s == 16 * 128 * 2);
     static_assert(smem_size_o == 16 * 64 * 4 * Kernel_traits::Cta_tile_p::WARPS_N);
 
-    constexpr int smem_size_dv = smem_size_s + 2 * smem_size_q + smem_size_v + smem_size_softmax;
-    constexpr int smem_size_dq_dk = smem_size_s + smem_size_o + smem_size_q + smem_size_v;
-    constexpr int smem_size = std::max(smem_size_dv, smem_size_dq_dk);
+    int smem_size_remat_s = fmha::get_dynamic_smem_size<Kernel_traits>(params);
+    int smem_size_dv = smem_size_s + 2 * smem_size_q + smem_size_v + smem_size_softmax;
+    int smem_size_dq_dk = smem_size_s + smem_size_o + smem_size_q + smem_size_v;
+    int smem_size = std::max(std::max(smem_size_dv, smem_size_dq_dk), smem_size_remat_s);
+
+    fprintf(stderr, "bwd: smem_size_dv=%d smem_size_dq_dk=%d smem_size_remat_s=%d smem_size=%d\n", 
+        smem_size_dv, smem_size_dq_dk, smem_size_remat_s, smem_size);
+    fprintf(stderr, "bwd dv: smem_size_s=%d+2*smem_size_q=%d+smem_size_v=%d+smem_size_softmax=%d\n", 
+        smem_size_s, smem_size_q, smem_size_v, smem_size_softmax);
+    fprintf(stderr, "bwd dq_dk: smem_size_s=%d+smem_size_o=%d+smem_size_q=%d+smem_size_v=%d\n", 
+        smem_size_s, smem_size_o, smem_size_q, smem_size_v);
 
     if( smem_size >= 48 * 1024 ) {
         FMHA_CHECK_CUDA(cudaFuncSetAttribute(

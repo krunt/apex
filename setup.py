@@ -30,6 +30,8 @@ def check_cuda_torch_binary_vs_bare_metal(cuda_dir):
     print("\nCompiling cuda extensions with")
     print(raw_output + "from " + cuda_dir + "/bin\n")
 
+    print('versions', bare_metal_major, bare_metal_minor, torch_binary_major, torch_binary_minor)
+
     if (bare_metal_major != torch_binary_major) or (bare_metal_minor != torch_binary_minor):
         raise RuntimeError(
             "Cuda extensions are being compiled with a version of Cuda that does "
@@ -546,10 +548,12 @@ if "--fmha" in sys.argv:
                 #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_256_128_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_384_64_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_256_64_kernel.sm80.cu",
+                "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_128_64_kernel.sm80.cu",
                 #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_256_128_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_fprop_fp16_512_64_kernel.sm80.cu",
                 #"apex/contrib/csrc/fmha/src/fmha_fprop_fp16_1024_64_kernel.sm80.cu",
                 #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_128_64_kernel.sm80.cu",
+                "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_128_64_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_256_64_kernel.sm80.cu",
                 "apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_384_64_kernel.sm80.cu",
                 #"apex/contrib/csrc/fmha/src/fmha_dgrad_fp16_512_64_kernel.sm80.cu",

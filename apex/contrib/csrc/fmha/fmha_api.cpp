@@ -104,7 +104,7 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
         c10::optional<at::Generator> gen_) {
 
     auto dprops = at::cuda::getCurrentDeviceProperties();
-    TORCH_CHECK(dprops->major == 8);// && dprops->minor == 0);
+    //TORCH_CHECK(dprops->major == 8);// && dprops->minor == 0);
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     Launch_params<Fused_multihead_attention_fprop_params> launch_params(dprops, stream, is_training, is_nl);
 
@@ -114,11 +114,11 @@ mha_fwd(const at::Tensor &qkv,         // total x num_heads x 3 x head_size, tot
     // int seq_len = 512;
     // auto launch = &run_fmha_fp16_512_64_sm80;
 
-    int seq_len = 384;
-    auto launch = &run_fmha_fp16_384_64_sm80;
+    //int seq_len = 384;
+    //auto launch = &run_fmha_fp16_384_64_sm80;
 
-    // int seq_len = 256;
-    // auto launch = &run_fmha_fp16_256_64_sm80;
+    int seq_len = 128;
+    auto launch = &run_fmha_fp16_128_64_sm80;
 
     // int seq_len = 256;
     // auto launch = &run_fmha_fp16_256_128_sm80;
@@ -225,16 +225,16 @@ mha_bwd(const at::Tensor &dout,  // total x num_heads, x head_size
         const bool zero_tensors
 ) {
     auto dprops = at::cuda::getCurrentDeviceProperties();
-    TORCH_CHECK(dprops->major == 8); // && dprops->minor == 0);
+    //TORCH_CHECK(dprops->major == 8); // && dprops->minor == 0);
 
     // int seq_len = 512;
     // auto launch = &run_fmha_dgrad_fp16_512_64_sm80;
 
-    // int seq_len = 256;
-    // auto launch = &run_fmha_dgrad_fp16_256_64_sm80;
+    int seq_len = 128;
+    auto launch = &run_fmha_dgrad_fp16_128_64_sm80;
 
-    int seq_len = 384;
-    auto launch = &run_fmha_dgrad_fp16_384_64_sm80;
+    //int seq_len = 384;
+    //auto launch = &run_fmha_dgrad_fp16_384_64_sm80;
 
     // if( max_seq_len <= 128 ) {
     //     seq_len = 128;
