@@ -250,7 +250,7 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
     // The thread index.
     const int tidx = threadIdx.x;
 
-    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, tidx);
+    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, bids * Cta_tile_p::N, tidx);
     if( binfo.stop_early() ) return;
 
     Gemm1 gemm_q_k(smem_, tidx);

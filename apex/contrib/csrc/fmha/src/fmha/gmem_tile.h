@@ -122,6 +122,16 @@ struct Gmem_tile_qkv {
         }
     }
 
+    inline __device__ void store(const uint4 (&data)[LDGS], int actual_seqlen_arg) {
+        #pragma unroll
+        for( int ii = 0; ii < LDGS; ++ii ) {
+            char *ptr = qkv_ptr_ + (int64_t)ii * ROWS_PER_LDG * params_qkv_stride_in_bytes_;
+            if( (row_ + ii * ROWS_PER_LDG) < min(ROWS, actual_seqlen_arg) ) {
+                fmha::stg(ptr, data[ii]);
+            }
+        }
+    }
+
     // Move the pointer to the next location.
     inline __device__ void move() {
         qkv_ptr_ += (int64_t)ROWS * params_qkv_stride_in_bytes_;

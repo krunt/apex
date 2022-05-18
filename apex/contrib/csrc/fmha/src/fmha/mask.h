@@ -37,7 +37,7 @@ struct Mask {
     template<typename Params, typename BInfo>
     __device__ Mask(const Params &params, const BInfo &blockInfo, int tidx) {
 
-        actual_seqlen = blockInfo.actual_seqlen;
+        actual_seqlen = blockInfo.local_block_seqlen;
 
         const int warp = tidx / Cta_tile::THREADS_PER_WARP;
         const int lane = tidx % Cta_tile::THREADS_PER_WARP;

@@ -47,22 +47,25 @@ struct BlockInfoPadded {
     __device__ BlockInfoPadded(const Params &params,
                                const int bidb,
                                const int bidh,
+                               const int bsoffset,
                                const int tidx)
         : bidb(bidb), bidh(bidh), h(params.h) {
 
         // The block index.
         sum_s = params.cu_seqlens[bidb];
-        actual_seqlen = params.cu_seqlens[bidb + 1] - sum_s;
+        actual_seqlen = params.cu_seqlens[bidb + 1] - sum_s; 
+        local_block_seqlen = std::max(actual_seqlen - bsoffset, 0);
         bidx = sum_s * params.h + bidh;
 
         tidx_global = (bidb * params.h + bidh) * THREADS_PER_CTA + tidx;
     }
 
     __device__ bool stop_early() const {
-        return actual_seqlen == 0;
+        return local_block_seqlen == 0;
     }
 
     int actual_seqlen;
+    int local_block_seqlen;
     int bidx;
     int sum_s;
     int bidh;
