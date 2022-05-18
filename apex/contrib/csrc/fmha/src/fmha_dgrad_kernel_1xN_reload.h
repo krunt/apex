@@ -93,7 +93,7 @@ inline __device__ void rematerialize_softmax_1xN(const Params &params, int bids,
 
     enum { ROW_STRIDE = 8 };
 
-    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, tidx);
+    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, bids * Cta_tile_p::N, tidx);
     if( binfo.stop_early() ) return;
 
     Gemm1 gemm_q_k(smem_, tidx);
@@ -281,7 +281,7 @@ inline __device__ void compute_reduce_dv_1xN(const Params &params, int bids, int
     // The thread index.
     const int tidx = threadIdx.x;
 
-    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, tidx);
+    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, bids * Cta_tile_p::N, tidx);
     if( binfo.stop_early() )
         return;
 
@@ -511,7 +511,7 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     // The thread index.
     const int tidx = threadIdx.x;
 
-    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, tidx);
+    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, bids * Cta_tile_p::N, tidx);
     if( binfo.stop_early() )
         return;
 
@@ -731,7 +731,8 @@ inline __device__ void compute_dv_1xN(const Params &params, int bids, int steps)
     dv_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
     dv_params.h = params.h;
     Gmem_tile_dv gmem_dv(dv_params, 2, bids * Cta_tile_p::N, binfo, tidx);
-    gmem_dv.store(dv_out);
+    // gmem_dv.store(dv_out);
+    gmem_dv.store(dv_out, binfo.local_block_seqlen);
 }
 
 template<typename Kernel_traits, typename Params>
@@ -803,7 +804,7 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     // The thread index.
     const int tidx = threadIdx.x;
 
-    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, tidx);
+    const BlockInfoPadded<Kernel_traits::THREADS> binfo(params, bidb, bidh, bids * Cta_tile_p::N, tidx);
     if( binfo.stop_early() )
         return;
 
@@ -974,7 +975,8 @@ inline __device__ void compute_dq_dk_1xN(const Params &params, int bids, int ste
     dk_params.qkv_stride_in_bytes = params.qkv_stride_in_bytes;
     dk_params.h = params.h;
     Gmem_tile_dk gmem_dk(dk_params, 1, bids * Cta_tile_p::N, binfo, tidx);
-    gmem_dk.store(dk_out);
+    // gmem_dk.store(dk_out);
+    gmem_dk.store(dk_out, binfo.local_block_seqlen);
 }
 
 template<typename Kernel_traits, typename Params>
