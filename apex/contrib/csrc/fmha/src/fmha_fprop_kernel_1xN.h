@@ -480,6 +480,8 @@ inline __device__ void device_1xN_(const Params &params, const int bidb, const i
             gemm_q_k.reload_q();
         }
 
+        __syncthreads();
+
         softmax.update_old_max(p_max, smem_old_maxs_p);
         softmax.update_old_sum(p_sum, smem_old_sums_p);
 

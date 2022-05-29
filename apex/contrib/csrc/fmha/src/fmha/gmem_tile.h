@@ -298,8 +298,8 @@ struct Gmem_tile_o {
             float ox, oy, oz, ow;
             half4_to_float4(oldv, ox, oy, oz, ow);
 
-            int irow = this->row_ % ROWS;
-            float rcoef = __expf(smem_old_maxs_p[irow] - smem_cur_maxs_p[irow]) * smem_old_sums_p[irow] / smem_cur_sums_p[irow];
+            int irow = (this->row_ + jj * ROWS_PER_STG) % ROWS;
+            float rcoef = __expf(smem_old_maxs_p[irow] - smem_cur_maxs_p[irow]) * (smem_old_sums_p[irow] / smem_cur_sums_p[irow]);
 
             x += ox * rcoef;
             y += oy * rcoef;
